@@ -264,7 +264,11 @@ onBeforeUnmount(() => {
         </button>
       </header>
 
-      <MessageThread />
+      <MessageThread>
+        <!-- Questions and permission cards belong to the conversation, so they
+             follow the last message instead of sitting beside the composer. -->
+        <PromptDock />
+      </MessageThread>
 
       <div class="bottom">
         <div v-if="error" class="error-banner">
@@ -272,7 +276,6 @@ onBeforeUnmount(() => {
           <span>{{ error }}</span>
           <button @click="dismissError"><X :size="14" /></button>
         </div>
-        <PromptDock />
         <!-- An archived conversation is read-only: restoring it is what puts it
              back in play, so the composer says so instead of half-working. -->
         <div v-if="isArchived" class="archived-bar">

@@ -295,7 +295,9 @@ const isEmpty = computed(() => !pendingPermissions.value.length && !pendingForms
   flex-direction: column;
   gap: 10px;
   max-width: var(--content-width);
-  margin: 0 auto 10px;
+  /* Inset and centered like a message, so a question reads as the turn's own
+     question rather than as a second input area above the composer. */
+  margin: 6px auto 10px;
   width: 100%;
 }
 .card {
