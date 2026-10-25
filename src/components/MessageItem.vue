@@ -364,12 +364,19 @@ const shellExit = computed(() => {
   border-radius: var(--radius);
   background: var(--bg-elevated);
   font-size: 12.5px;
+  /* A command is clipped at the card's own padding box: it wraps first, and this
+     is what keeps a stretch of it from being drawn across the border. */
+  overflow: hidden;
 }
 .shell-icon {
   flex: none;
   color: var(--text-muted);
 }
 .shell-command {
+  /* A flex item will not shrink below its content without this. `anywhere` is
+     already what makes the break opportunities count, but the two together are
+     what let a command with no spaces in it wrap instead of pushing. */
+  min-width: 0;
   font-family: var(--font-mono);
   color: var(--text);
   overflow-wrap: anywhere;
@@ -440,12 +447,22 @@ const shellExit = computed(() => {
   cursor: pointer;
   font-size: 12.5px;
   color: var(--text-muted);
+  /* Clipped at its own padding box: the label fits and the preview ellipsises,
+     so this is what keeps anything that would not from crossing the border. */
+  overflow: hidden;
 }
 .notice-head:hover {
   color: var(--text);
 }
 .notice-label {
-  flex: none;
+  /* Normally a word or two, but the server authors this string, and it can
+     arrive as a whole command: shrinkable and clipped like the preview, so a long
+     one is ellipsised inside the notice instead of being drawn out of it. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text);
 }
 .notice-preview {
