@@ -1,4 +1,4 @@
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import type { V2Event } from "@/api/types"
 import {
   QUESTION_REASON,
@@ -27,6 +27,14 @@ import { useSessions } from "./sessions"
  * Unread ("done") is the one state this store owns outright: a turn that ends
  * while the tab is not being looked at is something to come back to, and looking
  * at it is what clears it.
+ *
+ * That set belongs to the app rather than to the tab. Every tab watches the same
+ * stream, so every hidden one marks the same conversation unread; if each kept
+ * its own set, looking at the conversation in one tab would clear it there and
+ * leave the others still reporting it — and the studio app, whose tray sees all
+ * of them, would go on showing it. So the set lives in storage, the tabs share it
+ * through `storage` events, and looking at a conversation in any tab clears it
+ * for all of them.
  */
 
 const UNREAD_KEY = "opencode-web-chat.unread-sessions"
@@ -36,9 +44,9 @@ interface SessionSignals {
 }
 
 const signals = ref<Record<string, SessionSignals>>({})
-const unread = ref<Set<string>>(loadUnread())
+const unread = ref<Set<string>>(readUnread())
 
-function loadUnread(): Set<string> {
+function readUnread(): Set<string> {
   try {
     const raw = localStorage.getItem(UNREAD_KEY)
     const parsed = raw ? (JSON.parse(raw) as unknown) : []
@@ -48,9 +56,19 @@ function loadUnread(): Set<string> {
   }
 }
 
-function persistUnread() {
+/**
+ * Change the set by re-reading it first, then writing back.
+ *
+ * Two tabs catching two different turns at the same moment must not overwrite
+ * each other's, so a change is applied to what is stored rather than to whatever
+ * this tab last read.
+ */
+function updateUnread(mutate: (set: Set<string>) => void) {
+  const next = readUnread()
+  mutate(next)
+  unread.value = next
   try {
-    localStorage.setItem(UNREAD_KEY, JSON.stringify([...unread.value]))
+    localStorage.setItem(UNREAD_KEY, JSON.stringify([...next]))
   } catch {
     /* storage unavailable */
   }
@@ -119,10 +137,7 @@ export function usePresence() {
         patch(sessionID, { status: "idle" })
         // A turn that ends while the tab is elsewhere is something to come back
         // to; one that ends in front of the user is not.
-        if (unfocused() && !unread.value.has(sessionID)) {
-          unread.value = new Set(unread.value).add(sessionID)
-          persistUnread()
-        }
+        if (unfocused() && !unread.value.has(sessionID)) updateUnread((set) => set.add(sessionID))
         break
       default:
         break
@@ -149,10 +164,7 @@ export function usePresence() {
 
   function markSeen(sessionID: string | null | undefined) {
     if (!sessionID || !unread.value.has(sessionID)) return
-    const next = new Set(unread.value)
-    next.delete(sessionID)
-    unread.value = next
-    persistUnread()
+    updateUnread((set) => set.delete(sessionID))
   }
 
   /**
@@ -184,41 +196,72 @@ export function usePresence() {
     worstState(conversations.value.map((conversation) => conversation.state)),
   )
 
-  let detachAttention: (() => void) | null = null
+  /** Whether this tab is in front of the user, as a value that can be watched. */
+  const looking = ref(false)
 
-  /** Look at a conversation, and clear whatever it was telling the user. */
-  function watchWindow() {
-    const acknowledge = () => markSeen(sessions.currentID.value)
-    const onVisibility = () => {
-      if (!document.hidden) acknowledge()
-    }
-    window.addEventListener("focus", acknowledge)
-    document.addEventListener("visibilitychange", onVisibility)
-    detachAttention = () => {
-      window.removeEventListener("focus", acknowledge)
-      document.removeEventListener("visibilitychange", onVisibility)
-      detachAttention = null
-    }
+  function refreshLooking() {
+    looking.value = !unfocused()
   }
+
+  /**
+   * Clear the open conversation, if this tab is showing it to the user.
+   *
+   * Looking is what acknowledges a finished turn, so this is not only about
+   * arriving from elsewhere: a turn that ends while this tab is already in front
+   * of the user has to be acknowledged the moment it is marked, or the mark it
+   * never needed would sit there until the user looked away and back.
+   */
+  function acknowledge() {
+    if (!looking.value) return
+    markSeen(sessions.currentID.value)
+  }
+
+  function onAttention() {
+    refreshLooking()
+    acknowledge()
+  }
+
+  /**
+   * A mark another tab made, or cleared. The set belongs to the app, so the tabs
+   * have to agree on it: without this, looking at a conversation here would leave
+   * the other tabs reporting it as unread, which is what the studio app's tray
+   * reads.
+   */
+  function onStorage(event: StorageEvent) {
+    if (event.key !== null && event.key !== UNREAD_KEY) return
+    unread.value = readUnread()
+  }
+
+  let started = false
 
   /**
    * Start following the window's focus. Called once, for the life of the tab:
    * the acknowledgement is about this page, not about a server connection.
    */
   function start() {
-    if (detachAttention) return
-    watchWindow()
+    if (started) return
+    started = true
+    refreshLooking()
+    window.addEventListener("focus", onAttention)
+    window.addEventListener("blur", onAttention)
+    document.addEventListener("visibilitychange", onAttention)
+    window.addEventListener("storage", onStorage)
+    watch([() => sessions.currentID.value, unread, looking], acknowledge, { immediate: true })
   }
 
+  /**
+   * Forget what this tab knows about the stream. The unread marks are left alone:
+   * they belong to the app's conversations, not to this tab's connection, and
+   * another tab may be showing one of them right now.
+   */
   function reset() {
     signals.value = {}
-    unread.value = new Set()
-    persistUnread()
   }
 
   return {
     signals,
     unread,
+    looking,
     conversations,
     open,
     state,

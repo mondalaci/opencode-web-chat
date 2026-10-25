@@ -12,6 +12,9 @@ import { usePresence, type ReportedConversation } from "./presence"
  *  - on every change, so the dot and the chime are immediate;
  *  - on a slow heartbeat, so a tab that is killed rather than closed (a crash, a
  *    browser force-quit) does not leave a status behind forever;
+ *  - when the tab becomes visible again, because studio drops a client whose
+ *    reports stop arriving and a frozen background tab looks exactly like a dead
+ *    one;
  *  - once on unload, so a tab that *is* closed clears at once instead of waiting
  *    for the heartbeat to lapse.
  *
@@ -135,6 +138,19 @@ export function useStudio() {
     }
   }
 
+  /**
+   * Re-state the picture when the tab comes back.
+   *
+   * A hidden tab has its timers throttled and, past a few minutes, may be frozen
+   * outright — during which studio drops its client, because a report that stops
+   * arriving is indistinguishable from a tab that died. Coming back is therefore
+   * not just a change to report: the tab has to say it exists again, and the
+   * heartbeat alone would leave the dot missing for up to `HEARTBEAT_MS`.
+   */
+  function onVisibility() {
+    if (document.visibilityState === "visible") post(report.value)
+  }
+
   function start() {
     watch(
       signature,
@@ -145,6 +161,7 @@ export function useStudio() {
       { immediate: true },
     )
     heartbeat = setInterval(() => post(report.value), HEARTBEAT_MS)
+    document.addEventListener("visibilitychange", onVisibility)
     window.addEventListener("pagehide", onLeave)
     window.addEventListener("beforeunload", onLeave)
   }
@@ -152,6 +169,7 @@ export function useStudio() {
   onScopeDispose(() => {
     if (coalesce) clearTimeout(coalesce)
     if (heartbeat) clearInterval(heartbeat)
+    document.removeEventListener("visibilitychange", onVisibility)
     window.removeEventListener("pagehide", onLeave)
     window.removeEventListener("beforeunload", onLeave)
   })

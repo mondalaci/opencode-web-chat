@@ -188,6 +188,13 @@ closed the reports fail silently, and this app is unaffected. Only conversations
 that are *not* idle are reported — the tray has nothing to say about those — so a
 long session list cannot crowd out a conversation that does want attention.
 
+Because every tab of this app watches the same stream, every hidden one sees the
+same turn finish. The "done" mark is therefore the app's rather than a tab's:
+looking at the conversation in any tab clears it everywhere, and it is cleared
+the moment a turn ends in front of a tab that is already showing it. Reports are
+still made per tab, so one crashed or frozen tab cannot take the status down with
+it — another tab is already telling studio the same thing.
+
 ## URL parameters
 
 The URL can preselect a chat and prefill the composer:
