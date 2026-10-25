@@ -41,13 +41,14 @@ export function useApp() {
     try {
       const origin = connection.connected.value?.origin ?? info.origin
       // A `?project=` link (the launcher's vocab shortcut) scopes this visit to
-      // that project without changing the project the app remembers. Fall back to
-      // the project chosen for this server, then to the server's own default.
+      // that project without changing the project the app remembers. Without one,
+      // `load` falls back to the project chosen for this server, then to the
+      // runtime config's first shown project, then to the server's own default —
+      // so the server's default is passed along rather than decided here.
       const linked = readProjectParam()
       if (linked) clearProjectParam()
-      const saved = server.savedDirectory(origin)
-      const directory = linked ?? saved ?? (await client.locationInfo().catch(() => null))?.directory
-      await server.load(client, origin, directory)
+      const fallback = (await client.locationInfo().catch(() => null))?.directory
+      await server.load(client, origin, linked ?? undefined, fallback)
       await sessions.load(client, server.directory.value)
       live.start(client, server.directory.value)
       await openSessionFromUrl()

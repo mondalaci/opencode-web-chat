@@ -6,15 +6,19 @@
  * picked up on the next reload — no rebuild or restart needed. A missing or
  * invalid file is treated as an empty config, so the app keeps its defaults.
  *
- * Currently it carries `hideProjects`, the pattern list that keeps projects out
- * of the picker.
+ * Currently it carries `showProjects`, the pattern list that keeps the picker to
+ * a chosen set of projects.
  */
 export interface RuntimeConfig {
   /**
-   * Projects to omit from the project picker. Each entry matches either the
-   * project's folder name (when it has no `/`) or its absolute canonical
-   * directory (when it does). `*` matches any run of characters except `/`, and
-   * `**` matches any run including `/`.
+   * Projects the picker may show. Each entry matches either the project's folder
+   * name (when it has no `/`) or its absolute canonical directory (when it
+   * does). `*` matches any run of characters except `/`, and `**` matches any
+   * run including `/`.
+   *
+   * The list is an allowlist: when it is present only the projects it matches
+   * appear, and its first entry names the project the app opens by default. An
+   * absent or empty list shows every project.
    *
    * Examples:
    *   "scratch"                    the folder named `scratch`, anywhere
@@ -23,12 +27,12 @@ export interface RuntimeConfig {
    *   "/home/me/archive/**"        everything under that directory
    *   "root"                       the root project (canonical "/")
    */
-  hideProjects?: string[]
+  showProjects?: string[]
 }
 
 const CONFIG_URL = `${import.meta.env.BASE_URL}opencode-web-chat.json`
 
-/** Compile one `hideProjects` entry: `*` = any run, `**` = any run including `/`. */
+/** Compile one `showProjects` entry: `*` = any run, `**` = any run including `/`. */
 function compilePattern(pattern: string): RegExp {
   let source = ""
   for (let i = 0; i < pattern.length; i++) {
@@ -48,17 +52,25 @@ function compilePattern(pattern: string): RegExp {
 }
 
 /**
- * Whether a project's canonical directory is excluded by the configured
- * patterns. A pattern with no `/` is matched against the folder name, so it
- * hides that name anywhere; one with a `/` is matched against the whole path.
+ * Whether one pattern matches a project's canonical directory. A pattern with no
+ * `/` is matched against the folder name, so it matches that name anywhere; one
+ * with a `/` is matched against the whole path.
  */
-export function isProjectHidden(path: string, patterns: readonly string[] | undefined): boolean {
-  if (!patterns?.length) return false
+export function matchesPattern(path: string, pattern: string): boolean {
+  if (pattern === "") return false
   // A `/` project has no folder name; the UI calls it "root", so match that.
   const basename = path === "/" ? "root" : (path.split("/").filter(Boolean).pop() ?? path)
-  return patterns.some(
-    (pattern) => pattern !== "" && compilePattern(pattern).test(pattern.includes("/") ? path : basename),
-  )
+  return compilePattern(pattern).test(pattern.includes("/") ? path : basename)
+}
+
+/**
+ * Whether a project's canonical directory is admitted by the configured
+ * patterns. An absent or empty list admits every project — nothing is filtered —
+ * while a non-empty one admits only the projects a pattern matches.
+ */
+export function isProjectShown(path: string, patterns: readonly string[] | undefined): boolean {
+  if (!patterns?.length) return true
+  return patterns.some((pattern) => matchesPattern(path, pattern))
 }
 
 let pending: Promise<RuntimeConfig> | null = null
@@ -66,10 +78,10 @@ let pending: Promise<RuntimeConfig> | null = null
 /** Keep only the settings we understand, so a malformed file cannot break us. */
 function normalizeConfig(data: unknown): RuntimeConfig {
   if (!data || typeof data !== "object") return {}
-  const raw = (data as { hideProjects?: unknown }).hideProjects
+  const raw = (data as { showProjects?: unknown }).showProjects
   if (!Array.isArray(raw)) return {}
-  const hideProjects = raw.filter((entry): entry is string => typeof entry === "string" && entry !== "")
-  return hideProjects.length ? { hideProjects } : {}
+  const showProjects = raw.filter((entry): entry is string => typeof entry === "string" && entry !== "")
+  return showProjects.length ? { showProjects } : {}
 }
 
 /** Fetch the runtime config once; resolves to `{}` when absent or invalid. */

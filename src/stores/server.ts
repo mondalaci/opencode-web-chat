@@ -3,7 +3,7 @@ import type { ServerClient } from "@/api/client"
 import { normalizeOrigin } from "@/api/discovery"
 import type { Agent, CommandInfo, Model, ModelRef, Project, Provider, SkillInfo } from "@/api/types"
 import { baseCost, isFreeModel, variantIDs } from "@/api/types"
-import { isProjectHidden, loadRuntimeConfig } from "./runtimeConfig"
+import { isProjectShown, loadRuntimeConfig, matchesPattern } from "./runtimeConfig"
 
 const PREFS_KEY = "opencode-web-chat.prefs"
 
@@ -179,7 +179,12 @@ export function useServer() {
     selectedImageModel.value = saved.imageModel ?? null
   }
 
-  async function load(client: ServerClient, instanceOrigin: string, projectDirectory?: string) {
+  async function load(
+    client: ServerClient,
+    instanceOrigin: string,
+    projectDirectory?: string,
+    fallbackDirectory?: string,
+  ) {
     const changedOrigin = origin.value !== instanceOrigin
     origin.value = instanceOrigin
     loading.value = true
@@ -192,7 +197,10 @@ export function useServer() {
     selectedImageModel.value = saved.imageModel ?? null
 
     try {
-      const dir = projectDirectory ?? saved.directory
+      // A `?project=` link or the project chosen for this server is explicit; the
+      // server's own default is only the last resort.
+      const explicit = projectDirectory ?? saved.directory
+      const dir = explicit ?? fallbackDirectory
       directory.value = dir ?? null
 
       const [agentList, modelList, providerList, projectList, config, defaultModel, credentialIntegrations, skillList, commandList, runtimeConfig] =
@@ -212,9 +220,19 @@ export function useServer() {
       agents.value = agentList
       models.value = modelList
       providers.value = providerList
-      projects.value = projectList.filter(
-        (project) => !isProjectHidden(project.canonical, runtimeConfig.hideProjects),
+      const shown = projectList.filter((project) =>
+        isProjectShown(project.canonical, runtimeConfig.showProjects),
       )
+      projects.value = shown
+      // An allowlist makes its first entry the project the app opens, so a bare
+      // visit lands on a project the picker offers instead of the server's own
+      // default. An explicit `?project=` link or a remembered pick is left alone,
+      // so the launcher's vocab shortcut still lands on vocab.
+      const [first] = runtimeConfig.showProjects ?? []
+      if (first && explicit === undefined) {
+        const pinned = shown.find((project) => matchesPattern(project.canonical, first)) ?? shown[0]
+        if (pinned) directory.value = pinned.canonical
+      }
       configValues.value = config
       serverDefaultModel.value = defaultModel ? { id: defaultModel.modelID, providerID: defaultModel.providerID } : null
       const withKeys = providerList

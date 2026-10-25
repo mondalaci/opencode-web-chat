@@ -136,20 +136,28 @@ cp public/opencode-web-chat.example.json public/opencode-web-chat.json
 It is a plain static file, so you can edit it on a running deployment and the
 change applies on the next reload — no rebuild or restart.
 
-The one setting is `hideProjects`, a list of projects to keep out of the sidebar
-picker. Each entry matches either a project's folder name (when it has no `/`)
-or its absolute canonical directory (when it does); `*` matches any run of
-characters except `/`, and `**` matches any run including `/`:
+The one setting is `showProjects`, the set of projects the sidebar picker may
+show. When it is present it is an allowlist — only the projects it matches
+appear — and its **first entry names the project the app opens by default**,
+unless a `?project=` link or a remembered pick says otherwise. Each entry
+matches either a project's folder name (when it has no `/`) or its absolute
+canonical directory (when it does); `*` matches any run of characters except `/`,
+and `**` matches any run including `/`:
 
 ```json
 {
-  "hideProjects": ["scratch", "sandbox-*", "/home/me/repo", "/home/me/archive/**"]
+  "showProjects": ["chats", "vocab", "/home/me/repo", "/home/me/archive/**"]
 }
 ```
 
-Hidden projects still exist on the server — they are only omitted from this app's
-list, and matching is case-sensitive. An absent or invalid file means nothing is
-hidden.
+Projects outside the list still exist on the server — they are only omitted from
+this app's list, and matching is case-sensitive. An absent or invalid file shows
+every project.
+
+A bare folder name can match the same name in more than one place (for example a
+checkout under `~/projects` and one under `~/.local/share`), which would list the
+project twice and make the default ambiguous. Use an absolute path when exactly
+one project should appear.
 
 ## URL parameters
 
