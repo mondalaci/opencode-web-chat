@@ -199,7 +199,18 @@ export function useServer() {
     try {
       // A `?project=` link or the project chosen for this server is explicit; the
       // server's own default is only the last resort.
-      const explicit = projectDirectory ?? saved.directory
+      const requested = projectDirectory ?? saved.directory
+      // The requested directory is a hint, not an instruction: a project can be
+      // moved or deleted after it was written down. The server refuses a location
+      // it cannot resolve, which fails every location-scoped call below and, for a
+      // `?project=` link, breaks the visit halfway — the session is created, then
+      // its model switch is refused, so the query is never sent. Resolve it first
+      // and drop a hint that no longer names a location, letting the fallbacks
+      // below take over.
+      const resolved = requested
+        ? (await client.locationInfo(requested).catch(() => null))?.directory
+        : undefined
+      const explicit = resolved ?? undefined
       const dir = explicit ?? fallbackDirectory
       directory.value = dir ?? null
 
