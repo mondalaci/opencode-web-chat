@@ -1,23 +1,25 @@
-import { computed, onScopeDispose, ref, watch } from "vue"
+import { computed, onScopeDispose, watch } from "vue"
 import iconUrl from "../../build/icon.png"
-import { useChat } from "./chat"
+import type { ConversationState } from "@/utils/conversation"
+import { usePresence } from "./presence"
+import { useSessions } from "./sessions"
 
 /**
  * Drives the tab favicon.
  *
- * The tab carries the same traffic light as the sidebar, drawn the way the
+ * The tab carries the same traffic light as the studio app, drawn the way its
  * desktop tray draws it: the app icon with a state dot in the corner. A dot
- * survives the browser's downscale to 16px where the animated spinner did not —
+ * survives the browser's downscale to 16px where an animated spinner did not —
  * it is a solid shape on a dark icon, not a thin light ring on light artwork.
  *
- * The colours are the tray's rather than the sidebar's: the sidebar's muted
- * greys vanish against the icon at tab size, where the panel's brighter set
- * still reads.
+ * The colours are the tray's rather than a sidebar's: muted greys vanish against
+ * the icon at tab size, where the brighter set still reads.
+ *
+ * The state itself comes from the presence store, so the dot and the report the
+ * studio app receives can never disagree about what this conversation is doing.
  */
 
-export type TabState = "blocked" | "working" | "done" | "idle"
-
-const DOT_COLOURS: Record<TabState, string> = {
+const DOT_COLOURS: Record<ConversationState, string> = {
   blocked: "#e5484d",
   working: "#f5a623",
   done: "#35c06a",
@@ -51,9 +53,9 @@ function loadIcon(): Promise<HTMLImageElement> {
 }
 
 /** Icon plus corner dot, cached per state — the bitmap only changes on a state change. */
-const rendered = new Map<TabState, string>()
+const rendered = new Map<ConversationState, string>()
 
-async function renderIcon(state: TabState): Promise<string> {
+async function renderIcon(state: ConversationState): Promise<string> {
   const cached = rendered.get(state)
   if (cached) return cached
 
@@ -94,17 +96,11 @@ function iconLink(): HTMLLinkElement | null {
   return document.querySelector<HTMLLinkElement>('link[rel~="icon"]')
 }
 
-/**
- * A turn that finished while the tab was in the background. It is the one state
- * that is cleared by looking at it, which is what `useFaviconProgress` does.
- */
-const unread = ref(false)
-
 let originalHref: string | null = null
 /** Guards against an earlier, slower render landing after a newer state. */
 let renderToken = 0
 
-async function setFavicon(state: TabState) {
+async function setFavicon(state: ConversationState) {
   const link = iconLink()
   if (!link) return
 
@@ -119,37 +115,14 @@ async function setFavicon(state: TabState) {
 }
 
 export function useFaviconProgress() {
-  const chat = useChat()
+  const presence = usePresence()
+  const sessions = useSessions()
 
-  const state = computed<TabState>(() => {
-    if (chat.awaitingUser.value) return "blocked"
-    if (chat.isBusy.value) return "working"
-    if (unread.value) return "done"
-    return "idle"
-  })
-
-  // A turn that ends while the user is elsewhere leaves a green dot behind;
-  // looking at the tab is what acknowledges it.
-  const looking = () => document.visibilityState === "visible" && document.hasFocus()
-  let wasBusy = chat.isBusy.value
-
-  watch(chat.isBusy, (busy) => {
-    if (wasBusy && !busy && !looking()) unread.value = true
-    wasBusy = busy
-  })
-
-  const acknowledge = () => {
-    if (looking()) unread.value = false
-  }
-  document.addEventListener("visibilitychange", acknowledge)
-  window.addEventListener("focus", acknowledge)
+  /** The open conversation is the one the tab is about. */
+  const state = computed(() => presence.stateFor(sessions.currentID.value))
 
   watch(state, (value) => void setFavicon(value), { immediate: true })
-
-  onScopeDispose(() => {
-    document.removeEventListener("visibilitychange", acknowledge)
-    window.removeEventListener("focus", acknowledge)
-  })
+  onScopeDispose(() => void setFavicon("idle"))
 
   return { state }
 }

@@ -2,6 +2,7 @@ import { ref } from "vue"
 import type { ServerClient } from "@/api/client"
 import type { V2Event } from "@/api/types"
 import { useChat } from "./chat"
+import { usePresence } from "./presence"
 import { useSessions } from "./sessions"
 
 const live = ref(false)
@@ -10,6 +11,7 @@ const lastEventAt = ref<number | null>(null)
 
 const chat = useChat()
 const sessions = useSessions()
+const presence = usePresence()
 
 /**
  * Every tab shares a single `/api/event` stream per server.
@@ -95,6 +97,9 @@ function apply(event: V2Event) {
       sessions.applyEvent(event, client)
     }
     chat.applyEvent(event, client)
+    // Presence follows every project: a conversation in another one is still a
+    // conversation the studio app may need to speak up about.
+    presence.applyEvent(event)
   }
 }
 

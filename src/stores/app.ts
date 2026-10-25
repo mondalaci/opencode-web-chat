@@ -6,6 +6,7 @@ import { useChat } from "./chat"
 import { useConnection } from "./connection"
 import { draft, requestComposerFocus } from "./draft"
 import { useLive } from "./live"
+import { usePresence } from "./presence"
 import { toModelRef, useServer } from "./server"
 import { useSessions } from "./sessions"
 import {
@@ -24,6 +25,7 @@ export function useApp() {
   const sessions = useSessions()
   const chat = useChat()
   const live = useLive()
+  const presence = usePresence()
   const archive = useArchive()
 
   async function connect(info: InstanceInfo, credentials?: Credentials) {
@@ -31,6 +33,7 @@ export function useApp() {
     chat.reset()
     sessions.reset()
     server.reset()
+    presence.reset()
 
     server.applySavedPrefs(info.origin)
 
@@ -59,6 +62,8 @@ export function useApp() {
       chat.reset()
       sessions.reset()
       server.reset()
+      presence.reset()
+
       connection.disconnect()
       connection.connectError.value = error instanceof Error ? error.message : String(error)
       return false
@@ -70,6 +75,7 @@ export function useApp() {
     chat.reset()
     sessions.reset()
     server.reset()
+    presence.reset()
     archive.reset()
     connection.disconnect()
   }

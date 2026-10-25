@@ -5,9 +5,15 @@ import InstancePicker from "./components/InstancePicker.vue"
 import Spinner from "./components/Spinner.vue"
 import { useApp } from "@/stores/app"
 import { useFaviconProgress } from "@/stores/favicon"
+import { usePresence } from "@/stores/presence"
+import { useStudio } from "@/stores/studio"
 
 const app = useApp()
 useFaviconProgress()
+// Presence folds per-conversation state out of the live stream, and studio is
+// the tab's report to the desktop app's tray icon.
+usePresence().start()
+useStudio().start()
 const connected = app.connection.connected
 
 // Keep the picker hidden while we try to restore the last server, so it does

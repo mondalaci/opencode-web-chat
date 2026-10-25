@@ -159,6 +159,35 @@ checkout under `~/projects` and one under `~/.local/share`), which would list th
 project twice and make the default ambiguous. Use an absolute path when exactly
 one project should appear.
 
+## Status in the system tray
+
+If [OpenCode Projects Studio](https://github.com/mondalaci/opencode-projects-studio)
+is running, this app reports its conversations to it, and studio shows them on
+its tray icon: **studio's own conversations keep the bottom-right dot, and this
+app's take the bottom-left one**, so the two are never confused. A tab that is
+working shows an amber dot, one whose agent is waiting on you a red one, and one
+with a finished turn you have not looked at a green one. Nothing is drawn while a
+tab is idle.
+
+Studio also chimes for this app's conversations, on the same terms as its own: a
+turn that finishes, or an agent that starts waiting, while studio's window is not
+in front of you. A question gets its own lower sound. Tray entries for these
+conversations open the conversation in the browser, and the notification does the
+same when clicked.
+
+The two apps agree on a loopback endpoint, which is the whole of the setup:
+
+| | |
+| --- | --- |
+| Where | `http://127.0.0.1:45998/status` — studio's, see `electron/status-server.cjs` there |
+| What | a JSON report, `text/plain` so the browser sends it without a preflight |
+| When | on every change, on a 20-second heartbeat, and once as a beacon on unload |
+
+Nothing here needs configuring, and nothing is required of studio either: with it
+closed the reports fail silently, and this app is unaffected. Only conversations
+that are *not* idle are reported — the tray has nothing to say about those — so a
+long session list cannot crowd out a conversation that does want attention.
+
 ## URL parameters
 
 The URL can preselect a chat and prefill the composer:

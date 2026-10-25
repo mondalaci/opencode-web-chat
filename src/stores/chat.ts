@@ -898,6 +898,10 @@ export function useChat() {
     loading,
     sending,
     error,
+    // The whole project's requests, not just the open conversation's: the
+    // presence store folds over these to see which conversations are blocked.
+    permissions,
+    forms,
     pendingPermissions,
     pendingForms,
     currentSessionID,
