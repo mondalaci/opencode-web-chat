@@ -19,7 +19,7 @@ import PartMessageCompose from "./PartMessageCompose.vue"
 import PartReasoning from "./PartReasoning.vue"
 import PartTool from "./PartTool.vue"
 
-const props = defineProps<{ message: SessionMessageInfo; streaming?: boolean }>()
+const props = defineProps<{ message: SessionMessageInfo; streaming?: boolean; caret?: boolean }>()
 
 /** The model list, for naming the model a message ran on. */
 const { models } = useServer()
@@ -193,7 +193,11 @@ const shellExit = computed(() => {
         </template>
       </template>
 
-      <div v-if="streaming" class="caret"></div>
+      <!-- The caret is the cursor of arriving prose. The parent shows it only
+           while this message's trailing part is streaming text: a running tool
+           spins on its own row, and a turn blocked on a question is waiting for
+           the reader, not the model. -->
+      <div v-if="caret" class="caret"></div>
       <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
       <div v-if="retryNote" class="retry">{{ retryNote }}</div>
     </div>
