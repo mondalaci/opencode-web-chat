@@ -18,7 +18,6 @@ const inputObject = computed<Record<string, unknown> | null>(() =>
 )
 
 const summary = computed(() => toolSummary(props.part.name, inputObject.value ?? undefined))
-const title = computed(() => summary.value || props.part.name || "tool")
 
 /** The tool arguments, pretty-printed once they are valid JSON. */
 const inputText = computed(() => {
@@ -67,10 +66,18 @@ const busy = computed(() => state.value.status === "streaming" || state.value.st
 <template>
   <div class="tool" :class="state.status">
     <button class="head" @click="open = !open">
-      <ChevronRight :size="14" class="chev" :class="{ open }" />
-      <Terminal :size="14" class="tool-icon" />
-      <span class="tool-name">{{ part.name }}</span>
-      <span class="tool-title">{{ title }}</span>
+      <!-- The chevron, the terminal and the text are one flowing line: a long
+           argument wraps at the row's own left edge, under the chevron, instead
+           of in a column indented past the icons. -->
+      <span class="tool-text">
+        <ChevronRight :size="14" class="chev" :class="{ open }" />
+        <Terminal :size="14" class="tool-icon" />
+        <span class="tool-name">{{ part.name }}</span>
+        <!-- The summary continues the name's line. Its leading space is an
+             interpolation because the compiler strips whitespace that sits
+             between two elements. -->
+        <span v-if="summary" class="tool-title">{{ " " }}{{ summary }}</span>
+      </span>
       <span class="status">
         <Spinner v-if="busy" :size="12" />
         <Check v-else-if="state.status === 'completed'" :size="14" class="ok" />
@@ -107,7 +114,9 @@ const busy = computed(() => state.value.status === "streaming" || state.value.st
 }
 .head {
   display: flex;
-  align-items: center;
+  /* The status sits on the first line of the text, not on the centre of a
+     summary that has wrapped to several. */
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
   text-align: left;
@@ -115,6 +124,7 @@ const busy = computed(() => state.value.status === "streaming" || state.value.st
   border: none;
   padding: 8px 12px;
   font-size: 12.5px;
+  line-height: 1.5;
   color: var(--text-muted);
   /* The row's content is clipped at its own padding box, so a summary can never
      be drawn across the card's border — it wraps, and this is the guarantee for
@@ -124,22 +134,25 @@ const busy = computed(() => state.value.status === "streaming" || state.value.st
 .head:hover {
   background: var(--bg-hover);
 }
+/* The chevron and the terminal are the first glyphs of the text run, so a
+   wrapped summary continues at the left edge instead of past the icons. */
 .chev {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 4px;
   transition: transform 0.15s;
-  flex: none;
 }
 .chev.open {
   transform: rotate(90deg);
 }
 .tool-icon {
-  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 4px;
 }
-.tool-name {
-  font-family: var(--font-mono);
-  color: var(--text);
-  flex: none;
-}
-.tool-title {
+/* The name and its summary: one text run, so the summary wraps under the name
+   instead of being laid out as a second column beside it. */
+.tool-text {
   flex: 1;
   min-width: 0;
   font-family: var(--font-mono);
@@ -149,9 +162,13 @@ const busy = computed(() => state.value.status === "streaming" || state.value.st
      conversation a horizontal scrollbar instead. */
   overflow-wrap: anywhere;
 }
+.tool-name {
+  color: var(--text);
+}
 .status {
   flex: none;
   display: inline-flex;
+  margin-top: 2px;
 }
 .ok {
   color: #4ade80;
