@@ -1,6 +1,6 @@
 import type { Credentials, PromptFileInput } from "@/api/client"
 import type { InstanceInfo } from "@/api/discovery"
-import type { FormAnswer, FormInfo, Model, SessionInfo } from "@/api/types"
+import type { FormAnswer, FormInfo, Model, SessionInfo, SessionMessageAssistant } from "@/api/types"
 import { archiveOpen, useArchive } from "./archive"
 import { useChat } from "./chat"
 import { useConnection } from "./connection"
@@ -212,6 +212,31 @@ export function useApp() {
   }
 
   /**
+   * The prompt a "Continue" sends after an output-limit stop. It is deliberately
+   * explicit about not repeating the earlier text: the model sees its own cut-off
+   * reply in the history and would otherwise begin again from the top.
+   */
+  const CONTINUE_PROMPT = "Continue from where you stopped. Do not repeat what you already wrote."
+
+  /**
+   * Carry on a reply the model was cut off on. A new turn is the only way to get
+   * the rest of the text, so it goes through the same `chat.send` the composer
+   * uses — but on the model and agent that produced the truncated message, not
+   * whatever the picker holds now, so the continuation matches the reply it is
+   * continuing.
+   */
+  async function continueReply(message: SessionMessageAssistant) {
+    const client = connection.client.value
+    const sessionID = sessions.currentID.value
+    if (!client || !sessionID) return
+    await chat.send(client, sessionID, {
+      text: CONTINUE_PROMPT,
+      model: message.model,
+      agent: message.agent,
+    })
+  }
+
+  /**
    * Hand a slash command to the server.
    *
    * A command belongs to a conversation, so an empty pane gets one first —
@@ -346,6 +371,7 @@ export function useApp() {
     runCommand,
     compact,
     abort,
+    continueReply,
     archiveSession,
     openArchive,
     closeArchive,

@@ -33,6 +33,20 @@ const LEADER_TIMEOUT_MS = PING_MS * 3
  *  claiming leadership itself. */
 const ELECT_GRACE_MS = 400
 
+/**
+ * How long the event stream may stay silent while a turn is in flight before it
+ * is treated as broken, and how often that is checked.
+ *
+ * The server sends events only when something changes, so a stream that died
+ * without closing its socket looks exactly like a quiet one; a turn that is
+ * really running emits steps and deltas, so a whole turn's worth of silence is
+ * a fault. Re-read first — the session record is authoritative, and it ends the
+ * turn if the server finished while nobody was listening — and replace the
+ * stream if it is still silent on the next pass.
+ */
+const STREAM_QUIET_MS = 15_000
+const LIVENESS_MS = 5_000
+
 const supported = typeof BroadcastChannel !== "undefined"
 const tabID = Math.random().toString(36).slice(2)
 const seen = new Set<string>()
@@ -54,8 +68,11 @@ let role: "idle" | "leader" | "follower" = "idle"
 let controller: AbortController | null = null
 let pingTimer: ReturnType<typeof setInterval> | null = null
 let watchdog: ReturnType<typeof setInterval> | null = null
+let livenessTimer: ReturnType<typeof setInterval> | null = null
 let electTimer: ReturnType<typeof setTimeout> | null = null
 let lastPingAt = 0
+/** Consecutive liveness checks that found a turn running and the stream silent. */
+let quietTicks = 0
 
 function sleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve) => {
@@ -116,6 +133,32 @@ async function resync(client: ServerClient, directory?: string | null) {
     } catch {
       /* ignore */
     }
+  }
+}
+
+/**
+ * Notice a stream that has gone quiet while a turn is believed to be running.
+ * Re-read the session first — the record is authoritative and can end the turn
+ * if it finished unwatched — then replace a stream that is still silent on the
+ * next pass. Only the leader holds the stream; a follower's silence may simply
+ * be the leader's own trouble, and the leader reopens it for everyone.
+ */
+function checkLiveness() {
+  const client = activeClient
+  if (!client || !chat.isBusy.value) {
+    quietTicks = 0
+    return
+  }
+  if (Date.now() - (lastEventAt.value ?? 0) < STREAM_QUIET_MS) {
+    quietTicks = 0
+    return
+  }
+  quietTicks += 1
+  const sessionID = chat.currentSessionID.value
+  if (sessionID) void chat.reconcile(client, sessionID)
+  if (quietTicks >= 2) {
+    quietTicks = 0
+    if (role === "leader") openStream()
   }
 }
 
@@ -258,6 +301,11 @@ function stop() {
     clearInterval(watchdog)
     watchdog = null
   }
+  if (livenessTimer) {
+    clearInterval(livenessTimer)
+    livenessTimer = null
+  }
+  quietTicks = 0
   closeStream()
   role = "idle"
   lastPingAt = 0
@@ -272,6 +320,11 @@ export function useLive() {
     activeClient = client
     activeDirectory = directory
     activeKey = keyFor(client)
+
+    // The stream's own liveness is watched from the moment there is one to
+    // watch: a socket that dies without closing sends nothing, and a turn that
+    // is really running always emits something.
+    if (!livenessTimer) livenessTimer = setInterval(checkLiveness, LIVENESS_MS)
 
     if (!supported) {
       // No cross-tab channel available: fall back to a per-tab stream.

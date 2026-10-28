@@ -471,6 +471,16 @@ export function useChat() {
   }
 
   /**
+   * Re-read the open conversation's tail on demand. The stream's liveness check
+   * uses this: a turn believed to be running with no events arriving is either
+   * finished (the record says so) or the stream is dead.
+   */
+  async function reconcile(client: ServerClient, sessionID: string) {
+    reconcileContext = { client, sessionID }
+    await reconcileNow()
+  }
+
+  /**
    * Drop the questions holding this session, server-side and locally.
    *
    * A run parked on a question is idle as far as the server is concerned, so the
@@ -911,6 +921,7 @@ export function useChat() {
     runCommand,
     compact,
     abort,
+    reconcile,
     replyPermission,
     replyForm,
     cancelForm,

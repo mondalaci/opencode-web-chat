@@ -143,6 +143,7 @@ watch(
         :message="message"
         :streaming="isBusy && message.id === lastAssistantID && message.type === 'assistant' && !message.time.completed"
         :caret="message.id === streamingTextID"
+        :latest="message.id === lastAssistantID"
       />
     </template>
 
