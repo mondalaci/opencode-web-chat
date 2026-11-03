@@ -23,8 +23,10 @@ targets (see the dependency version in `package.json`).
   `build` agent; there is no agent picker.
 - **Interactive prompts** — permission requests (allow once / always / deny) and
   agent forms (options, multi-select, yes/no, numbers, free text), with a
-  free-form question answerable by typing it straight into the composer. A form
-  sends itself the moment its last choice lands; only one that nothing on the
+  free-form question answerable by typing it straight into the composer. A typed
+  answer is read back out of the answered tool call's own metadata and shown in
+  the thread as a message of its own, so the reply reads like any other turn. A
+  form sends itself the moment its last choice lands; only one that nothing on the
   card can end — a multiple choice, or a step finished in a browser — keeps a
   Submit button.
 - **Session management** — new chat, rename, delete (behind a confirmation),

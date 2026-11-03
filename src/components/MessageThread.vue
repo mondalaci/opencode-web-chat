@@ -4,7 +4,7 @@ import MessageItem from "./MessageItem.vue"
 import Spinner from "./Spinner.vue"
 import { useChat } from "@/stores/chat"
 
-const { messages, loading, currentSessionID, scrollToBottomRequest, pendingForms, pendingPermissions, isBusy, awaitingUser } = useChat()
+const { messages, conversation, loading, currentSessionID, scrollToBottomRequest, pendingForms, pendingPermissions, isBusy, awaitingUser } = useChat()
 
 const viewport = ref<HTMLElement | null>(null)
 const pinned = ref(true)
@@ -138,7 +138,7 @@ watch(
 
     <template v-else>
       <MessageItem
-        v-for="message in messages"
+        v-for="message in conversation"
         :key="message.id"
         :message="message"
         :streaming="isBusy && message.id === lastAssistantID && message.type === 'assistant' && !message.time.completed"
