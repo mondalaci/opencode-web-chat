@@ -9,26 +9,25 @@ import {
   DropdownMenuTrigger,
 } from "reka-ui"
 import {
-  Archive,
   MessageSquarePlus,
   MoreHorizontal,
   Pencil,
   Search,
+  Trash2,
 } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
 import ProjectSelector from "./ProjectSelector.vue"
 import SidebarSearch from "./SidebarSearch.vue"
-import ArchivePanel from "./ArchivePanel.vue"
+import ConfirmDialog from "./ConfirmDialog.vue"
 import iconUrl from "../../build/icon.png"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { shortcutsVisible, openRequests } from "@/stores/shortcuts"
 import { openSearch, searchOpen } from "@/stores/search"
-import { archiveOpen } from "@/stores/archive"
 
 const app = useApp()
 const { sorted, currentID, loading } = app.sessions
-const { newChat, selectSession, archiveSession, openArchive, renameSession } = app
+const { newChat, selectSession, deleteSession, renameSession } = app
 
 const editingID = ref<string | null>(null)
 const editTitle = ref("")
@@ -61,6 +60,39 @@ async function commitRename() {
 
 function cancelRename() {
   editingID.value = null
+}
+
+/* ----------------------------- delete a session ----------------------------- */
+
+/** The conversation a delete confirmation is open for, if any. */
+const pendingDelete = ref<{ id: string; title: string } | null>(null)
+const deleting = ref(false)
+const deleteError = ref<string | null>(null)
+
+function askDelete(id: string, title: string) {
+  deleteError.value = null
+  pendingDelete.value = { id, title: title || "Untitled" }
+}
+
+function cancelDelete() {
+  if (deleting.value) return
+  pendingDelete.value = null
+  deleteError.value = null
+}
+
+async function confirmDelete() {
+  const pending = pendingDelete.value
+  if (!pending || deleting.value) return
+  deleting.value = true
+  deleteError.value = null
+  try {
+    await deleteSession(pending.id)
+    pendingDelete.value = null
+  } catch (cause) {
+    deleteError.value = cause instanceof Error ? cause.message : String(cause)
+  } finally {
+    deleting.value = false
+  }
 }
 
 /* ------------------------------ session list nav ------------------------------ */
@@ -141,7 +173,6 @@ function onSessionsKeydown(event: KeyboardEvent) {
 <template>
   <aside class="sidebar">
     <SidebarSearch v-if="searchOpen" />
-    <ArchivePanel v-else-if="archiveOpen" />
     <template v-else>
     <header class="head">
       <img class="logo" :src="iconUrl" alt="" />
@@ -149,9 +180,6 @@ function onSessionsKeydown(event: KeyboardEvent) {
       <button class="icon search-btn" title="Search conversations (Alt+F)" @click="openSearch()">
         <Search :size="16" />
         <kbd v-if="shortcutsVisible" class="kbd floating">F</kbd>
-      </button>
-      <button class="icon" title="Archived conversations" @click="openArchive()">
-        <Archive :size="16" />
       </button>
       <button class="icon new-chat-btn" title="New chat (Alt+N)" @click="newChat()">
         <MessageSquarePlus :size="18" />
@@ -194,8 +222,8 @@ function onSessionsKeydown(event: KeyboardEvent) {
                 <Pencil :size="14" /> Rename
               </DropdownMenuItem>
               <DropdownMenuSeparator class="opencode-menu-sep" />
-              <DropdownMenuItem class="opencode-menu-item" @select="archiveSession(session.id)">
-                <Archive :size="14" /> Archive
+              <DropdownMenuItem class="opencode-menu-item danger" @select="askDelete(session.id, session.title ?? '')">
+                <Trash2 :size="14" /> Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuPortal>
@@ -206,6 +234,18 @@ function onSessionsKeydown(event: KeyboardEvent) {
       <kbd v-if="shortcutsVisible" class="kbd floating">S</kbd>
     </div>
     </template>
+
+    <ConfirmDialog
+      :open="Boolean(pendingDelete)"
+      title="Delete conversation?"
+      :message="pendingDelete ? `This removes “${pendingDelete.title}” and its messages from opencode. It cannot be undone.` : ''"
+      confirm-label="Delete"
+      danger
+      :busy="deleting"
+      :error="deleteError"
+      @confirm="confirmDelete"
+      @cancel="cancelDelete"
+    />
   </aside>
 </template>
 

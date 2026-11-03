@@ -432,8 +432,6 @@ export class ServerClient {
       limit?: number
       search?: string
       cursor?: string
-      /** Archived conversations are opt-in: the visible lists never want them. */
-      archived?: boolean
     } = {},
     call: CallOptions = {},
   ): Promise<SessionPage> {
@@ -444,7 +442,6 @@ export class ServerClient {
           limit: opts.limit ?? 50,
           search: opts.search,
           cursor: opts.cursor,
-          archived: opts.archived ?? false,
           parentID: "null",
         },
         requestOptions,
@@ -477,16 +474,16 @@ export class ServerClient {
 
   /**
    * Patch a session. The endpoint answers without a body, so the row is read
-   * back: callers need the server's own values ("archived", "title") to keep the
-   * sidebar honest rather than guessing at them.
+   * back: callers need the server's own title to keep the sidebar honest rather
+   * than guessing at it.
    */
   async updateSession(
     sessionID: string,
-    body: { title?: string; archived?: boolean },
+    body: { title?: string },
     opts?: CallOptions,
   ): Promise<SessionInfo> {
     await this.request(opts, (requestOptions) =>
-      this.sdk.session.update({ sessionID, title: body.title, archived: body.archived }, requestOptions),
+      this.sdk.session.update({ sessionID, title: body.title }, requestOptions),
     )
     return this.getSession(sessionID, opts)
   }

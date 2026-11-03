@@ -7,8 +7,6 @@ const DEFAULT_LIMIT = 100
 const sessions = ref<SessionInfo[]>([])
 const currentID = ref<string | null>(null)
 const loading = ref(false)
-/** A conversation shown in the pane without belonging to the active list (an archived one). */
-const preview = ref<SessionInfo | null>(null)
 
 function upsert(session: SessionInfo) {
   const index = sessions.value.findIndex((item) => item.id === session.id)
@@ -22,13 +20,7 @@ function upsert(session: SessionInfo) {
 }
 
 export function useSessions() {
-  const current = computed(
-    () =>
-      sessions.value.find((item) => item.id === currentID.value) ??
-      // A previewed (archived) conversation is not in the list, but the header
-      // and the archive view still need its row.
-      (preview.value?.id === currentID.value ? preview.value : null),
-  )
+  const current = computed(() => sessions.value.find((item) => item.id === currentID.value) ?? null)
 
   const sorted = computed(() =>
     [...sessions.value].sort((a, b) => (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0)),
@@ -91,38 +83,10 @@ export function useSessions() {
     forget(sessionID)
   }
 
-  /**
-   * Put a conversation out of the way, reversibly.
-   *
-   * v2 has no undelete: `DELETE` removes the row, its messages and their parts
-   * for good. Archiving keeps everything and can be undone, so it is what the
-   * sidebar offers.
-   */
-  async function archive(client: ServerClient, sessionID: string) {
-    await client.updateSession(sessionID, { archived: true })
-    sessions.value = sessions.value.filter((item) => item.id !== sessionID)
-    if (currentID.value === sessionID) currentID.value = null
-  }
-
-  async function unarchive(client: ServerClient, sessionID: string) {
-    await client.updateSession(sessionID, { archived: false })
-  }
-
   /** Drop a conversation from the local lists, without touching the server. */
   function forget(sessionID: string) {
     sessions.value = sessions.value.filter((item) => item.id !== sessionID)
-    if (preview.value?.id === sessionID) preview.value = null
     if (currentID.value === sessionID) currentID.value = null
-  }
-
-  /** Show a conversation that is not in the list (an archived one). */
-  function previewSession(session: SessionInfo) {
-    preview.value = session
-    currentID.value = session.id
-  }
-
-  function clearPreview() {
-    preview.value = null
   }
 
   async function rename(client: ServerClient, sessionID: string, title: string) {
@@ -164,11 +128,6 @@ export function useSessions() {
         if (currentID.value === event.data.sessionID) currentID.value = null
         break
       }
-      case "session.archived": {
-        sessions.value = sessions.value.filter((item) => item.id !== event.data.sessionID)
-        break
-      }
-      case "session.unarchived":
       case "session.moved":
       case "session.metadata.updated": {
         if (client) void refresh(client, event.data.sessionID)
@@ -192,7 +151,6 @@ export function useSessions() {
   function reset() {
     sessions.value = []
     currentID.value = null
-    preview.value = null
   }
 
   return {
@@ -200,18 +158,13 @@ export function useSessions() {
     sorted,
     current,
     currentID,
-    preview,
     loading,
     load,
     query,
     queryAll,
     create,
     remove,
-    archive,
-    unarchive,
     forget,
-    previewSession,
-    clearPreview,
     rename,
     refresh,
     applyEvent,

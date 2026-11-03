@@ -27,8 +27,8 @@ targets (see the dependency version in `package.json`).
   sends itself the moment its last choice lands; only one that nothing on the
   card can end — a multiple choice, or a step finished in a browser — keeps a
   Submit button.
-- **Session management** — new chat, rename, archive (reversibly) with a
-  restore/delete view, project switching, live status.
+- **Session management** — new chat, rename, delete (behind a confirmation),
+  project switching, live status.
 - **Conversation search** — server-side title search with cursor paging, plus
   optional content search through the shared
   [`opencode-search`](https://github.com/mondalaci/opencode-search) service; both
@@ -261,9 +261,8 @@ src/
   stores/
     connection.ts   Instance list, saved connections, client lifecycle
     server.ts       Agents, models, providers, projects, preferences
-    sessions.ts     Session list + mutations (archive is the reversible form)
+    sessions.ts     Session list + mutations (rename, delete)
     chat.ts         Messages, streaming assembly, permissions, forms
-    archive.ts      Archived conversations of the open project
     live.ts         Shared SSE subscription with reconnect + resync
     app.ts          Wires the stores together into app-level actions
   components/       UI (Reka UI primitives + custom chat components)
@@ -304,11 +303,9 @@ src/
   per-message tool switch — tool availability is expressed as permission rules
   (`permissions` in the config, or per session). The previous sidebar tool
   toggles therefore have no equivalent.
-- **Conversations are archived, not deleted**: `DELETE` in v2 removes the row,
-  its messages and their parts for good, with nothing to restore. The sidebar
-  therefore offers *Archive* (`PATCH` with `archived: true`), and the archive
-  view is where a conversation can be restored — or deleted permanently, after
-  a confirmation.
+- **Deleting a conversation is permanent**: `DELETE` in v2 removes the row, its
+  messages and their parts for good, with nothing to restore. The conversation
+  menu in the sidebar therefore asks for a confirmation before deleting.
 - **Stored commands are not surfaced**: the app does not run `/name`
   invocations from the composer. The server's command list is not fetched at
   all; typing `/name` sends it as ordinary text.

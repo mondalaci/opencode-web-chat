@@ -1,7 +1,6 @@
 import type { Credentials, PromptFileInput } from "@/api/client"
 import type { InstanceInfo } from "@/api/discovery"
-import type { FormAnswer, FormInfo, Model, SessionInfo, SessionMessageAssistant } from "@/api/types"
-import { archiveOpen, useArchive } from "./archive"
+import type { FormAnswer, FormInfo, Model, SessionMessageAssistant } from "@/api/types"
 import { useChat } from "./chat"
 import { useConnection } from "./connection"
 import { draft, requestComposerFocus } from "./draft"
@@ -26,7 +25,6 @@ export function useApp() {
   const chat = useChat()
   const live = useLive()
   const presence = usePresence()
-  const archive = useArchive()
 
   async function connect(info: InstanceInfo, credentials?: Credentials) {
     live.stop()
@@ -76,7 +74,6 @@ export function useApp() {
     sessions.reset()
     server.reset()
     presence.reset()
-    archive.reset()
     connection.disconnect()
   }
 
@@ -144,8 +141,6 @@ export function useApp() {
     await server.load(client, connection.connected.value?.origin ?? "", directory)
     await sessions.load(client, server.directory.value)
     live.setDirectory(server.directory.value)
-    // The archive belongs to the project, so an open one follows the switch.
-    if (archiveOpen.value) await archive.load(client, directory)
   }
 
   async function newChat() {
@@ -264,59 +259,15 @@ export function useApp() {
   }
 
   /**
-   * Put a conversation out of the way, reversibly.
+   * Delete a conversation for good.
    *
-   * Deleting is offered only from the archive view, which asks for a
-   * confirmation first: the API has no undelete.
+   * v2 has no undelete: `DELETE` removes the row, its messages and their parts.
+   * The caller asks for a confirmation first.
    */
-  async function archiveSession(sessionID: string) {
-    const client = connection.client.value
-    if (!client) return
-    await sessions.archive(client, sessionID)
-    if (!sessions.currentID.value && sessions.sorted.value[0]) {
-      await selectSession(sessions.sorted.value[0].id)
-    }
-  }
-
-  async function openArchive() {
-    const client = connection.client.value
-    if (!client) return
-    archiveOpen.value = true
-    await archive.load(client, server.directory.value)
-  }
-
-  function closeArchive() {
-    archiveOpen.value = false
-  }
-
-  /** Show an archived conversation in the pane, without leaving the archive. */
-  async function viewArchivedSession(session: SessionInfo) {
-    const client = connection.client.value
-    if (!client) return
-    sessions.previewSession(session)
-    writeSessionParam(session.id, readSessionParam() === session.id)
-    await chat.open(client, session.id, server.directory.value)
-  }
-
-  /** Take a conversation back out of the archive, into the visible list. */
-  async function restoreSession(sessionID: string) {
-    const client = connection.client.value
-    if (!client) return
-    await sessions.unarchive(client, sessionID)
-    archive.remove(sessionID)
-    const info = await client.getSession(sessionID).catch(() => null)
-    if (info) {
-      sessions.upsert(info)
-      if (sessions.currentID.value === sessionID) sessions.clearPreview()
-    }
-  }
-
-  /** Delete a conversation for good. Only the archive view offers this. */
   async function deleteSession(sessionID: string) {
     const client = connection.client.value
     if (!client) return
     await sessions.remove(client, sessionID)
-    archive.remove(sessionID)
     if (!sessions.currentID.value && sessions.sorted.value[0]) {
       await selectSession(sessions.sorted.value[0].id)
     }
@@ -359,7 +310,6 @@ export function useApp() {
     sessions,
     chat,
     live,
-    archive,
     connect,
     disconnect,
     selectSession,
@@ -372,11 +322,6 @@ export function useApp() {
     compact,
     abort,
     continueReply,
-    archiveSession,
-    openArchive,
-    closeArchive,
-    viewArchivedSession,
-    restoreSession,
     deleteSession,
     renameSession,
     setModel,
