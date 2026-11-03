@@ -6,6 +6,7 @@ import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
 import Composer from "./Composer.vue"
 import McpDialog from "./McpDialog.vue"
+import ImageLightbox from "./ImageLightbox.vue"
 import PromptDock from "./PromptDock.vue"
 import { TITLE_SUFFIX } from "@/brand"
 import { useApp } from "@/stores/app"
@@ -276,6 +277,7 @@ onBeforeUnmount(() => {
 
     <McpDialog />
 
+    <ImageLightbox />
   </div>
 </template>
 

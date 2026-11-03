@@ -2,6 +2,7 @@
 import { computed, ref } from "vue"
 import { Check, ChevronDown, ChevronRight, Copy, Download, File as FileIcon, ExternalLink } from "lucide-vue-next"
 import { dataUrlByteLength, dataUrlText, dataUrlToBlob, formatBytes, isDataUrl, isHttpUrl, isTextMime, type FileView } from "@/utils/file"
+import { openImage } from "@/stores/lightbox"
 
 const props = defineProps<{ file: FileView }>()
 
@@ -72,7 +73,14 @@ async function copy() {
 
 <template>
   <div class="part-file">
-    <img v-if="isImage" :src="url" :alt="name" />
+    <img
+      v-if="isImage"
+      :src="url"
+      :alt="name"
+      class="zoomable"
+      title="Click to enlarge"
+      @click="openImage(url, name)"
+    />
 
     <template v-else>
       <button
@@ -116,6 +124,9 @@ async function copy() {
   max-height: 360px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
+}
+.part-file img.zoomable {
+  cursor: zoom-in;
 }
 .file-chip {
   display: inline-flex;
