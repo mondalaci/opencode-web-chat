@@ -61,12 +61,14 @@ export function normalizeValue(field: FormField, value: unknown): FormValue {
  * Whether a line typed in the composer can answer this field.
  *
  * A field that offers options only takes one of them — unless it also invites a
- * custom answer — while a Yes/No, a multiple choice or an external link has
- * nothing a typed line could fill.
+ * custom answer — while a Yes/No or an external link has nothing a typed line
+ * could fill. A multiselect is no different once it invites a custom answer: the
+ * line becomes the list's one entry, rather than the field being turned away
+ * because a list usually arrives as clicks.
  */
 export function acceptsText(field: FormField): boolean {
-  if (field.type === "boolean" || field.type === "multiselect" || field.type === "external") return false
-  if (field.type === "string" && field.options?.length) return field.custom === true
+  if (field.type === "boolean" || field.type === "external") return false
+  if ("options" in field && field.options?.length) return field.custom === true
   return true
 }
 
@@ -129,7 +131,9 @@ export function answerFromText(form: FormInfo, text: string): FormAnswerBody | n
   if (!target) return null
   const answer: FormAnswerBody = {}
   for (const field of fields) {
-    answer[field.key] = normalizeValue(field, field === target ? body : values[field.key])
+    // A multiselect's answer is a list, and a typed custom answer is its one entry.
+    if (field === target && field.type === "multiselect") answer[field.key] = [body]
+    else answer[field.key] = normalizeValue(field, field === target ? body : values[field.key])
   }
   return answer
 }
