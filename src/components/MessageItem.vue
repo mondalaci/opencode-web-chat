@@ -12,6 +12,7 @@ import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
 import { endedAtOutputLimit } from "@/utils/truncation"
 import { attachmentView } from "@/utils/file"
 import { composedMessage } from "@/utils/compose"
+import { isStop } from "@/utils/stop"
 import { shortcutsVisible } from "@/stores/shortcuts"
 import { useServer } from "@/stores/server"
 import { useApp } from "@/stores/app"
@@ -114,6 +115,13 @@ const errorMessage = computed(() => {
   if (!message?.error) return null
   return message.error.message || "The model returned an error."
 })
+
+/**
+ * A step that was stopped rather than failed. Interrupting a turn — the stop
+ * button, or dismissing the question that was holding it — records an `aborted`
+ * step error, which the alarm tone would read as a crash.
+ */
+const stoppedStep = computed(() => isStop(assistant.value?.error))
 
 /** A turn waiting to try again after a failed step. */
 const retryNote = computed(() => {
@@ -228,7 +236,7 @@ const shellExit = computed(() => {
            spins on its own row, and a turn blocked on a question is waiting for
            the reader, not the model. -->
       <div v-if="caret" class="caret"></div>
-      <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
+      <div v-if="errorMessage" class="error" :class="{ stopped: stoppedStep }">{{ errorMessage }}</div>
       <div v-if="retryNote" class="retry">{{ retryNote }}</div>
       <div v-if="truncated" class="truncated">
         <span>This reply stopped at the model's output limit.</span>
@@ -381,6 +389,13 @@ const shellExit = computed(() => {
   border-radius: var(--radius-sm);
   color: var(--danger);
   font-size: 13px;
+}
+/* A stop, not a failure: the same note in the quiet tone, so an interrupted
+   step does not read as something going wrong. */
+.error.stopped {
+  border-color: var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
 }
 .retry {
   margin-top: 6px;
