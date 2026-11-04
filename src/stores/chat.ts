@@ -20,6 +20,7 @@ import type {
 } from "@/api/types"
 import { parseDataUrl } from "@/utils/file"
 import { questionReplies } from "@/utils/question"
+import { answeredOnlyInReasoning } from "@/utils/truncation"
 
 /** How long streaming updates are coalesced before a full reconcile. */
 const RECONCILE_DEBOUNCE_MS = 200
@@ -30,6 +31,19 @@ const RECONCILE_DEBOUNCE_MS = 200
  * on every step would grow with the conversation instead of staying flat.
  */
 const RECONCILE_PAGE_SIZE = 50
+
+/**
+ * The prompt sent when a reply arrived only in the reasoning channel. It says
+ * the reply was not delivered rather than "continue", because the model did
+ * write the answer — it just wrote it where the reader cannot see it. Asking it
+ * to continue would let it think it had already answered.
+ */
+const REASONING_ONLY_PROMPT =
+  "Your previous reply was recorded only in the reasoning channel, so it was not shown. " +
+  "Please write the answer again as your visible reply."
+
+/** Messages already asked to restate themselves, so a turn is retried once. */
+const autoContinued = new Set<string>()
 
 const messages = ref<SessionMessageInfo[]>([])
 const status = ref<SessionStatus>({ type: "idle" })
@@ -575,6 +589,30 @@ export function useChat() {
   }
 
   /**
+   * Ask again when a turn's only content is reasoning.
+   *
+   * Some models put the whole answer in the reasoning channel and finish with
+   * `stop`, which the harness records as a successful turn: the reader sees a
+   * thinking block and no reply. A fresh turn is the only way to get the text,
+   * so it goes through the same `send` the composer uses, on the model and agent
+   * that produced the message.
+   *
+   * One retry per user turn: if the last thing the user said was this prompt,
+   * the model already failed to recover, so it stops rather than looping.
+   */
+  async function continueReasoningOnly(client: ServerClient, sessionID: string) {
+    if (sessionID !== currentSessionID.value || awaitingUser.value) return
+    const last = [...messages.value].reverse().find((item) => item.type === "assistant") as
+      | SessionMessageAssistant
+      | undefined
+    if (!last || autoContinued.has(last.id) || !answeredOnlyInReasoning(last)) return
+    const lastUser = [...messages.value].reverse().find((item) => item.type === "user")
+    if (lastUser?.type === "user" && lastUser.text === REASONING_ONLY_PROMPT) return
+    autoContinued.add(last.id)
+    await send(client, sessionID, { text: REASONING_ONLY_PROMPT, model: last.model, agent: last.agent })
+  }
+
+  /**
    * Run a slash command the server knows.
    *
    * There is no message to place here: the server expands the command into one
@@ -726,6 +764,9 @@ export function useChat() {
               ? "interrupted"
               : "succeeded"
         completeTurn(outcome)
+        // A turn that ended with only reasoning has no answer to show; ask for
+        // it again before the reconcile settles the view on the empty reply.
+        if (outcome === "succeeded") void continueReasoningOnly(client, event.data.sessionID)
         void reconcileNow()
         return
       }
