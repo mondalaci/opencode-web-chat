@@ -238,11 +238,18 @@ export function useServer() {
       // An allowlist makes its first entry the project the app opens, so a bare
       // visit lands on a project the picker offers instead of the server's own
       // default. An explicit `?project=` link or a remembered pick is left alone,
-      // so the launcher's vocab shortcut still lands on vocab.
+      // so the launcher's vocab shortcut still lands on vocab. The pinned project
+      // is a hint too, and the directory it names can be gone: adopting one the
+      // server refuses would leave every scoped call unresolvable, and a session
+      // created under it is real enough to the server that the prompt then dies on
+      // the model switch instead of falling back. Resolve it before adopting it.
       const [first] = runtimeConfig.showProjects ?? []
       if (first && explicit === undefined) {
         const pinned = shown.find((project) => matchesPattern(project.canonical, first)) ?? shown[0]
-        if (pinned) directory.value = pinned.canonical
+        const pinnedDirectory = pinned
+          ? (await client.locationInfo(pinned.canonical).catch(() => null))?.directory
+          : undefined
+        if (pinnedDirectory) directory.value = pinnedDirectory
       }
       configValues.value = config
       serverDefaultModel.value = defaultModel ? { id: defaultModel.modelID, providerID: defaultModel.providerID } : null
