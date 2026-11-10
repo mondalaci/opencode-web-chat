@@ -14,7 +14,7 @@ import { requestComposerFocus } from "@/stores/draft"
 import { requestOpen, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
 import { theme, toggleTheme } from "@/theme"
-import { formatConversationDate, formatConversationDateTime, formatCost } from "@/utils/format"
+import { formatConversationDate, formatConversationDateTime, formatCost, formatTokens, formatTokensPerSecond } from "@/utils/format"
 
 const app = useApp()
 const { current } = app.sessions
@@ -132,6 +132,33 @@ const contextTitle = computed(() =>
     : `${contextTokens.value.toLocaleString()} tokens`,
 )
 
+/**
+ * Generation speed of that same last reply: the tokens the model produced over
+ * the span it took to produce them. Input and cache tokens are prefilled rather
+ * than generated, so they are left out of the numerator.
+ */
+const tokensPerSecond = computed(() => {
+  const message = lastAssistant.value
+  const tokens = message?.tokens
+  const time = message?.time
+  if (!tokens || !time?.completed) return 0
+  const seconds = (time.completed - time.created) / 1000
+  const generated = (tokens.output ?? 0) + (tokens.reasoning ?? 0)
+  return seconds > 0 && generated > 0 ? generated / seconds : 0
+})
+
+const tokensPerSecondTitle = computed(() => {
+  const message = lastAssistant.value
+  const tokens = message?.tokens
+  const time = message?.time
+  if (!tokens || !time?.completed) return "No reply to measure yet"
+  const seconds = (time.completed - time.created) / 1000
+  const generated = (tokens.output ?? 0) + (tokens.reasoning ?? 0)
+  return generated > 0 && seconds > 0
+    ? `${formatTokens(generated)} generated tokens over ${seconds.toFixed(1)}s (last reply)`
+    : "No reply to measure yet"
+})
+
 function dismissError() {
   error.value = null
 }
@@ -236,6 +263,8 @@ onBeforeUnmount(() => {
           <span class="stat" :class="{ warn: contextPercent >= 80 }" :title="contextTitle">
             {{ contextLimit ? `${contextPercent}%` : "—" }}
           </span>
+          <span class="stat-divider">·</span>
+          <span class="stat" :title="tokensPerSecondTitle">{{ formatTokensPerSecond(tokensPerSecond) }}</span>
         </div>
         <button
           class="theme-btn"
