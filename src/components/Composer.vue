@@ -257,7 +257,7 @@ const photosTitle = computed(() => {
     case "authorizing":
       return "Waiting for the Google sign-in…"
     case "picking":
-      return "Pick photos in the Google Photos tab…"
+      return "Pick photos in the Google Photos window…"
     case "attaching":
       return "Attaching the picked photos…"
     default:
@@ -271,9 +271,9 @@ const photosTitle = computed(() => {
 const photosProgress = computed(() => {
   switch (photos.phase.value) {
     case "authorizing":
-      return "Waiting for the Google sign-in in the tab that just opened…"
+      return "Waiting for the Google sign-in in the window that just opened…"
     case "picking":
-      return "Pick photos in the Google Photos tab; they land here when you are done."
+      return "Pick photos in the Google Photos window; they land here when you are done."
     case "attaching":
       return "Attaching the picked photos…"
     default:

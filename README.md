@@ -19,9 +19,9 @@ targets (see the dependency version in `package.json`).
   (including Mermaid diagrams), reasoning blocks, collapsible tool calls with
   JSON-highlighted inputs/outputs, and inline file/image attachments.
 - **Google Photos** — an *Attach photos from Google Photos* button beside the
-  paperclip opens Google's own picker in a new tab (the Photos Picker API), and
-  what you pick there lands in the composer as ordinary attachments. It needs the
-  optional local broker (see [Google Photos](#google-photos)).
+  paperclip opens Google's own picker in a popup window (the Photos Picker API),
+  and what you pick there lands in the composer as ordinary attachments. It needs
+  the optional local broker (see [Google Photos](#google-photos)).
 - **Model selection** — applied to the open session through the server's switch
   endpoint, with a per-server remembered default. Every session runs on the
   `build` agent; there is no agent picker.
@@ -171,10 +171,10 @@ one project should appear.
 ## Google Photos
 
 The composer's *Attach photos from Google Photos* button, beside the paperclip,
-opens Google's own picker in a new tab — search, albums, the whole library — and
-the photos ticked there arrive in the composer as attachments, ready to send with
-a prompt. Nothing is saved to disk first, and only what is ticked ever becomes
-readable.
+opens Google's own picker in a popup window — search, albums, the whole library —
+and the photos ticked there arrive in the composer as attachments, ready to send
+with a prompt. Nothing is saved to disk first, and only what is ticked ever
+becomes readable.
 
 That is the [Photos Picker API](https://developers.google.com/photos/picker/guides/get-started-picker),
 and it needs two things a browser page cannot hold: an OAuth client secret, and
@@ -230,10 +230,24 @@ refresh token in there is what keeps the button working from then on.
 
 ### Worth knowing
 
+- **The picker cannot be framed, only popped up.** `photos.google.com` sends
+  `x-frame-options: SAMEORIGIN`, so no overlay or iframe inside this page can
+  ever show it — that is Google's rule, not a gap in the app. The window is
+  therefore a sized popup centred over the app, which at least leaves the
+  composer, its status line and its Cancel button in view. A browser that ignores
+  window features, as a touch browser does, opens a tab instead.
+- **That window is then out of reach, by Google's design.** Its pages also send
+  `cross-origin-opener-policy: same-origin-allow-popups`, so as soon as the picker
+  loads, the browser severs the opener: this app can neither tell whether the
+  window is still open nor close it. The flow therefore waits on the *session*
+  (`mediaItemsSet`), which is Google's own "the user is done" signal — and the
+  picker closes its own window at that point, which is what `/autoclose` is for.
+  A window abandoned by hand keeps the session polling until it expires, so
+  **Cancel** is the way out; the session is deleted either way.
 - **Photos only.** A picked video is left out, with a note in the composer: what
   travels to the model is a `data:` URL, and a video is neither useful there nor
   small. Images are fetched at a bounded long edge for the same reason.
-- **Google's picker wants the tab signed in to the same account** that owns the
+- **Google's picker wants the window signed in to the same account** that owns the
   session; that rule is Google's, not this app's.
 - **The consent has to be given on the machine running the broker**, since that
   is where Google's loopback redirect lands. A browser on another device can use
@@ -241,7 +255,7 @@ refresh token in there is what keeps the button working from then on.
 - **The broker serves loopback origins only** (`localhost`, `*.localhost`,
   `127.0.0.1`), so a page that is not this UI cannot drive the Google token.
 - **Sessions are deleted on the way out** — picked, cancelled or expired — as
-  Google asks. A picker tab closed by hand simply times the session out.
+  Google asks.
 
 ## Status in the system tray
 
