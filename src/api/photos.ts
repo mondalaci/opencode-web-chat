@@ -20,7 +20,13 @@ export interface PhotosStatus {
   clientPath?: string | null
 }
 
-/** A picking session, as Google hands it out. */
+/**
+ * A picking session, as Google hands it out.
+ *
+ * The whole of it is kept — in the tab's own storage — because the session has to
+ * outlive the page: the picker takes the tab over, and the app only returns to the
+ * session after the user comes back.
+ */
 export interface PickerSession {
   id: string
   /** The Google Photos URL the user picks in; not openable in an iframe. */
@@ -76,9 +82,13 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+/** The consent URL, for a link the user follows in this very tab. */
+export function connectUrl(returnTo: string) {
+  return `${BASE}/oauth/start?return=${encodeURIComponent(returnTo)}`
+}
+
 export const photosApi = {
   status: () => call<PhotosStatus>("/status"),
-  authUrl: () => call<{ url: string }>("/auth-url"),
   createSession: () => call<PickerSession>("/sessions", { method: "POST", body: "{}" }),
   session: (id: string) => call<{ mediaItemsSet: boolean; expireTime?: string }>(`/sessions/${encodeURIComponent(id)}`),
   items: (id: string) => call<{ items: PickedItem[] }>(`/sessions/${encodeURIComponent(id)}/items`),

@@ -1,4 +1,4 @@
-import { ref } from "vue"
+import { ref, watch } from "vue"
 
 export interface Attachment {
   id: string
@@ -8,8 +8,36 @@ export interface Attachment {
   filename: string
 }
 
+/**
+ * The draft outlives the page it was typed into.
+ *
+ * Attaching from Google Photos sends the tab to Google Photos and the app comes
+ * back on the next navigation, which is a fresh page with empty memory — so a
+ * prompt typed before picking would be lost by the trip. The text is kept in the
+ * tab's own storage, which is what the trip can survive; the attachments are not,
+ * being data URLs that can be far too large to write there.
+ */
+const DRAFT_KEY = "opencode-draft"
+
+function readDraft(): string {
+  try {
+    return sessionStorage.getItem(DRAFT_KEY) ?? ""
+  } catch {
+    return ""
+  }
+}
+
 /** Shared composer draft so empty-state suggestions can prefill the input. */
-export const draft = ref("")
+export const draft = ref(readDraft())
+
+watch(draft, (value) => {
+  try {
+    if (value) sessionStorage.setItem(DRAFT_KEY, value)
+    else sessionStorage.removeItem(DRAFT_KEY)
+  } catch {
+    /* Storage being refused only costs the draft on the next navigation. */
+  }
+})
 
 /** Files attached to the composer (picked, pasted or dropped), sent as file parts. */
 export const attachments = ref<Attachment[]>([])

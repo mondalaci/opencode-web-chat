@@ -1,54 +1,55 @@
 /**
  * Attaching photos straight out of Google Photos.
  *
- * The flow is Google's: this app opens a Google-hosted picking session in a small
- * popup window, waits for the user to finish there, then pulls the picked bytes
- * through the local broker and drops them into the composer as ordinary
- * attachments — indistinguishable from a pasted or dropped file once they land.
+ * The picking itself is Google's own page, and it takes this tab over: pressing
+ * the composer's button creates a session and sends the tab to Google Photos,
+ * where the user searches and selects in a full page. Pressing Google's **Done**
+ * leaves a "Done! Continue in the other app or device" screen, and the browser's
+ * own Back button brings the app back — which is the moment this store picks the
+ * selection up, pulls the bytes through the local broker, and drops them into the
+ * composer as ordinary attachments.
  *
- * The window is as close to "inside the tab" as Google permits: `photos.google.com`
- * sends `x-frame-options: SAMEORIGIN`, so the picker can never be framed by this
- * page, and a popup is the one form of it that leaves the composer and its status
- * line visible. On a touch browser, which ignores window features, the same call
- * simply opens a tab.
+ * A tab is the only place it can happen, and the reason is Google's: the picker
+ * page sends `x-frame-options: SAMEORIGIN`, so nothing in this app may frame it —
+ * there is no overlay, no inline picker, no iframe. Taking the tab over is
+ * therefore the whole trick, and it is the flow Google documents for a web app.
+ * The window Google's own docs mention is not an option here: a separate popup
+ * leaves the tab behind rather than staying in it.
  *
- * That window is then out of reach, and this is the part worth knowing: Google's
- * page also sends `cross-origin-opener-policy: same-origin-allow-popups`, so the
- * moment it loads, the browser severs the opener and the handle this app holds
- * reports `closed` whether or not the window is still there. Nothing here may
- * therefore depend on the window's liveness — not to notice it being closed by
- * hand, not to close it. What the flow watches instead is the session, which is
- * Google's own signal that the user is done; Google's page closes its own window
- * at that point (the `/autoclose` suffix), which it is still free to do. Cancel is
- * the way out of a window the user abandoned, and the session is deleted either way.
+ * What that costs is the page: the tab navigates away, so the session, the draft
+ * and the attachments all have to survive on the browser's side rather than in
+ * memory. The session and the draft do (see `PENDING_KEY` and `stores/draft`), so
+ * coming back finds the composer as it was and finishes the job. Attachments
+ * already in the composer are the exception — they are data URLs held in memory,
+ * and a navigation drops them.
  *
  * The broker (`server/photos-broker.mjs`) is what makes the sign-in possible at
- * all: it holds the OAuth client secret and the refresh token, and it is the
- * only thing that ever touches the bearer token the media bytes require. When it
- * is not running — the usual state of a plain checkout — nothing here is reachable
- * and the composer simply has no Google Photos button.
+ * all: it holds the OAuth client secret and the refresh token, and it is the only
+ * thing that ever touches the bearer token the media bytes require. If it is not
+ * running — the usual state of a plain checkout — nothing here is reachable and
+ * the composer simply has no Google Photos button.
  */
 import { computed, ref } from "vue"
-import { PhotosError, photosApi, type PickedItem, type PickerSession } from "@/api/photos"
+import { connectUrl, PhotosError, photosApi, type PickedItem, type PickerSession } from "@/api/photos"
 import { addFile } from "./draft"
 
 /** Where the flow is, for the composer's button. */
-export type PhotosPhase = "idle" | "authorizing" | "picking" | "attaching"
+export type PhotosPhase = "idle" | "picking" | "attaching"
 
-/** How long the consent window is watched before the attempt is given up on. */
-const CONSENT_TIMEOUT_MS = 3 * 60 * 1000
-const CONSENT_POLL_MS = 1500
 /** Fallback when a session does not report its own expiry. */
 const SESSION_TIMEOUT_MS = 60 * 60 * 1000
+/** Bounds on Google's own suggested interval between polls. */
+const POLL_MIN_MS = 1000
+const POLL_DEFAULT_MS = 3000
 
 /**
- * The name of the picking window.
+ * Where the pending session waits while the tab is off at Google Photos.
  *
- * Naming it keeps a second attempt from leaving a second picker behind, for as
- * long as the name can still be resolved: once the window is on Google's origin
- * the browser has severed it, and the name reaches nothing.
+ * `sessionStorage`, because it belongs to this tab and to this navigation: the
+ * session is meaningless to another tab, and it should not outlive the tab it was
+ * started in.
  */
-const PICKER_WINDOW = "opencode-photos-picker"
+const PENDING_KEY = "opencode-photos-pending"
 
 const available = ref(false)
 const configured = ref(false)
@@ -56,37 +57,36 @@ const authorized = ref(false)
 const phase = ref<PhotosPhase>("idle")
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
+/** The session the user is off picking in, when there is one. */
+const pending = ref<PickerSession | null>(null)
 
 let initialized = false
-/** Set by Cancel; every loop checks it before its next step. */
+/** Set by Cancel; the watch loop checks it before its next step. */
 let cancelled = false
-/** The session in flight, so Cancel can clean it up on Google's side too. */
-let session: PickerSession | null = null
+/** True while the loop runs, so a resumed session cannot be watched twice. */
+let watching = false
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/**
- * Window features for the picker: a popup, sized to a photo grid and centred over
- * this window, so it reads as something the app put up rather than as a stray tab.
- */
-function pickerWindowFeatures() {
-  const width = 470
-  const height = Math.max(560, Math.min(880, (window.screen?.availHeight ?? 900) - 80))
-  const originX = Number.isFinite(window.screenX) ? window.screenX : 0
-  const originY = Number.isFinite(window.screenY) ? window.screenY : 0
-  const left = Math.max(0, Math.round(originX + ((window.outerWidth || width) - width) / 2))
-  const top = Math.max(0, Math.round(originY + ((window.outerHeight || height) - height) / 2))
-  return `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+/** The stored session, or null when the tab is not mid-pick. */
+function readPending(): PickerSession | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PickerSession
+    return parsed?.id && parsed?.pickerUri ? parsed : null
+  } catch {
+    return null
+  }
 }
 
-/**
- * The picker URL with Google's `/autoclose` suffix, so the window closes itself
- * once the user presses the button in it. The suffix belongs to the path, not
- * after the query string.
- */
-function withAutoclose(uri: string) {
-  const [path, query] = uri.split("?")
-  return `${(path ?? uri).replace(/\/$/, "")}/autoclose${query ? `?${query}` : ""}`
+function writePending(session: PickerSession | null) {
+  try {
+    if (session) sessionStorage.setItem(PENDING_KEY, JSON.stringify(session))
+    else sessionStorage.removeItem(PENDING_KEY)
+  } catch {
+    /* A browser that refuses storage only costs the resume, not the flow. */
+  }
 }
 
 /** A name for an attachment, keeping picked files from colliding in the strip. */
@@ -131,66 +131,18 @@ export function usePhotos() {
       authorized.value = status.authorized
     } catch {
       available.value = false
+      return
     }
-  }
-
-  /** Walk the user through Google's consent, until the broker has a token. */
-  async function authorize(target: Window | null) {
-    const { url } = await photosApi.authUrl()
-    open(url, target)
-    const deadline = Date.now() + CONSENT_TIMEOUT_MS
-    while (Date.now() < deadline && !cancelled) {
-      await sleep(CONSENT_POLL_MS)
-      const status = await photosApi.status().catch(() => null)
-      if (status?.authorized) {
-        authorized.value = true
-        configured.value = status.configured
-        return
-      }
+    // A session in storage means this page is a return trip: the user was away
+    // picking photos, and whatever they chose is waiting to be collected.
+    const stored = readPending()
+    if (!stored) return
+    if (!authorized.value) {
+      writePending(null)
+      return
     }
-    // A cancel is not a failure; only an attempt nobody finished is.
-    if (!cancelled) throw new Error("The Google sign-in was not completed. Nothing was attached.")
-  }
-
-  /**
-   * Show a URL in the window opened alongside the click, or in that same named
-   * window if it is still ours.
-   *
-   * No `noopener` here, deliberately: a window opened with it hands back `null`,
-   * and the initial navigate-and-reuse below needs the reference while the window
-   * is still blank. Once Google's page has loaded the reference is severed anyway,
-   * so nothing downstream leans on it.
-   */
-  function open(url: string, target: Window | null): Window | null {
-    if (target && !target.closed) {
-      target.location.href = url
-      return target
-    }
-    return window.open(url, PICKER_WINDOW, pickerWindowFeatures())
-  }
-
-  /**
-   * Create a session, open its picker, and wait for the selection to be made.
-   *
-   * The wait is the session's own `mediaItemsSet`, and only that: the window
-   * cannot be watched (see the note at the top of this file), so a picker closed
-   * by hand goes unnoticed until the session expires — Cancel is the way out.
-   */
-  async function collect(target: Window | null): Promise<PickedItem[]> {
-    const created = await photosApi.createSession()
-    session = created
-    open(withAutoclose(created.pickerUri), target)
-
-    const deadline = created.expireTime ? Date.parse(created.expireTime) : Date.now() + SESSION_TIMEOUT_MS
-    const interval = Math.max(1000, created.pollIntervalMs || 3000)
-    while (!cancelled) {
-      if (Date.now() > deadline) throw new Error("The Google Photos picking session expired.")
-      await sleep(interval)
-      if (cancelled) break
-      const state = await photosApi.session(created.id)
-      if (state.mediaItemsSet) return (await photosApi.items(created.id)).items
-    }
-    return []
+    pending.value = stored
+    void collect(stored)
   }
 
   /** Pull the picked bytes and hand them to the composer. */
@@ -214,53 +166,104 @@ export function usePhotos() {
   }
 
   /**
-   * The whole gesture: consent if it is needed, pick, attach.
+   * Wait for the user to finish in Google Photos, then attach what they picked.
    *
-   * The popup is opened before anything is awaited — a window opened after an
-   * `await` has no user activation and is liable to be blocked — and the session
-   * is always deleted on the way out, whether the user picked anything or not, as
-   * Google asks.
+   * The wait is the session's own `mediaItemsSet` — Google's signal that the user
+   * is done — polled at the interval Google asks for. It only ever runs while this
+   * page is in front of the user, which is exactly when it is on the way back from
+   * the picker; while the tab is at Google Photos this code is not running at all.
    */
-  async function pick() {
-    if (phase.value !== "idle") return
-    error.value = null
-    setNotice(null)
-    cancelled = false
-    const popup = window.open("", PICKER_WINDOW, pickerWindowFeatures())
+  async function collect(session: PickerSession) {
+    if (watching) return
+    watching = true
+    phase.value = "picking"
     try {
-      if (!authorized.value) {
-        phase.value = "authorizing"
-        await authorize(popup)
-        if (cancelled) return
+      const deadline = session.expireTime ? Date.parse(session.expireTime) : Date.now() + SESSION_TIMEOUT_MS
+      const interval = Math.max(POLL_MIN_MS, session.pollIntervalMs || POLL_DEFAULT_MS)
+      while (!cancelled) {
+        if (Date.now() > deadline) throw new Error("The Google Photos picking session expired.")
+        await sleep(interval)
+        if (cancelled) break
+        const state = await photosApi.session(session.id)
+        if (state.mediaItemsSet) {
+          phase.value = "attaching"
+          await attach((await photosApi.items(session.id)).items)
+          break
+        }
       }
-      phase.value = "picking"
-      const items = await collect(popup)
-      if (cancelled) return
-      phase.value = "attaching"
-      await attach(items)
     } catch (err) {
       error.value = message(err)
     } finally {
+      watching = false
       phase.value = "idle"
-      const current = session
-      session = null
-      if (current) await photosApi.removeSession(current.id).catch(() => undefined)
-      // Only reaches a window that never left our origin: once the picker has
-      // loaded, the handle this app holds is severed and closes nothing.
-      if (popup && !popup.closed) popup.close()
+      pending.value = null
+      writePending(null)
+      // The session has served its purpose — picked, abandoned or expired — and
+      // Google asks for it to be deleted rather than left to time out.
+      await photosApi.removeSession(session.id).catch(() => undefined)
     }
   }
 
-  /** Give up on the flow in flight: the window, the session, whatever it is waiting on. */
+  /**
+   * Start a pick: create the session, remember it, and hand the tab to Google.
+   *
+   * The navigation is the last thing this page does, so nothing here may depend on
+   * what comes after it — the flow continues in `init`, on the way back.
+   */
+  async function start() {
+    if (phase.value !== "idle" || watching) return
+    error.value = null
+    setNotice(null)
+    cancelled = false
+    if (!authorized.value) {
+      error.value = configured.value
+        ? "Google Photos is not connected yet. Use Connect, then pick again."
+        : "No Google OAuth client was found. See the README."
+      return
+    }
+    try {
+      const session = await photosApi.createSession()
+      writePending(session)
+      pending.value = session
+      location.assign(session.pickerUri)
+    } catch (err) {
+      error.value = message(err)
+    }
+  }
+
+  /**
+   * Go back to the picker for the session already in flight.
+   *
+   * Worth having because the way back from Google's Done screen is the browser's
+   * Back button, and a user who returns there before picking has no other way to
+   * resume: the session, and the URL that serves it, are still open.
+   */
+  function reopen() {
+    const session = pending.value
+    if (session) location.assign(session.pickerUri)
+  }
+
+  /** Give up on the session in flight, and forget it. */
   function cancel() {
     cancelled = true
     error.value = null
+    // Nothing was being watched — the user returned and cancelled before the loop
+    // started, say — so the session has to be dropped here instead.
+    const session = pending.value
+    if (session && !watching) {
+      pending.value = null
+      writePending(null)
+      void photosApi.removeSession(session.id).catch(() => undefined)
+    }
   }
 
   function clearMessages() {
     error.value = null
     setNotice(null)
   }
+
+  /** Where the Connect link sends the tab: the broker, which redirects to Google. */
+  const consentUrl = () => connectUrl(window.location.origin)
 
   return {
     available,
@@ -269,9 +272,12 @@ export function usePhotos() {
     phase,
     error,
     notice,
+    pending,
     busy: computed(() => phase.value !== "idle"),
+    consentUrl,
     init,
-    pick,
+    start,
+    reopen,
     cancel,
     clearMessages,
   }
