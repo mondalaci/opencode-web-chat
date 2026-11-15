@@ -145,7 +145,11 @@ async function resync(client: ServerClient, directory?: string | null) {
  */
 function checkLiveness() {
   const client = activeClient
-  if (!client || !chat.isBusy.value) {
+  // A turn parked on a question or a permission prompt is silent by design:
+  // nothing streams while the reader decides, and the run can wait there for as
+  // long as they take. Reading that silence as a dead stream reopened it every
+  // few seconds, and every reopen re-read the conversation underneath them.
+  if (!client || !chat.isBusy.value || chat.awaitingUser.value) {
     quietTicks = 0
     return
   }

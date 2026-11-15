@@ -431,11 +431,25 @@ export function useChat() {
     seed(next)
   }
 
+  /**
+   * Load a conversation, or refresh the one already open.
+   *
+   * The stream resyncs by calling this again for the session on screen. That
+   * re-read must not blank the thread: emptying it and showing the spinner
+   * collapses the scroll area, the viewport is clamped to the (short) spinner
+   * and reports itself at the bottom, and the reader's place in a long
+   * conversation is lost the moment the messages come back. So a session that is
+   * already loaded is refreshed in place — no spinner, no empty frame, and the
+   * messages it already has stay until the fetched ones replace them.
+   */
   async function open(client: ServerClient, sessionID: string, directory?: string | null) {
+    const refreshing = currentSessionID.value === sessionID && messages.value.length > 0
     currentSessionID.value = sessionID
-    loading.value = true
-    error.value = null
-    setMessages([])
+    if (!refreshing) {
+      loading.value = true
+      error.value = null
+      setMessages([])
+    }
     reconcileContext = { client, sessionID }
     try {
       const [list, perms, pendingForms, session, active] = await Promise.all([
@@ -447,7 +461,13 @@ export function useChat() {
       ])
       // Ignore a response for a session the user already navigated away from.
       if (currentSessionID.value !== sessionID) return
-      setMessages(list)
+      if (refreshing) {
+        messages.value = mergeMessages(messages.value, list)
+        live.clear()
+        seed(messages.value)
+      } else {
+        setMessages(list)
+      }
       permissions.value = perms
       forms.value = pendingForms
       // Only the server knows what is running, and a message that never reports a
@@ -459,9 +479,11 @@ export function useChat() {
         completeTurn(session?.outcome ?? "succeeded")
       }
     } catch (err) {
-      if (currentSessionID.value === sessionID) error.value = err instanceof Error ? err.message : String(err)
+      if (!refreshing && currentSessionID.value === sessionID) {
+        error.value = err instanceof Error ? err.message : String(err)
+      }
     } finally {
-      if (currentSessionID.value === sessionID) loading.value = false
+      if (!refreshing && currentSessionID.value === sessionID) loading.value = false
     }
   }
 
