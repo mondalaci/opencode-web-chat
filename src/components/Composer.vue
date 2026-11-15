@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue"
-import { ArrowUp, FileText, Paperclip, Square, TriangleAlert, X } from "lucide-vue-next"
+import { ArrowUp, FileText, Images, Paperclip, Square, TriangleAlert, X } from "lucide-vue-next"
 import ImageModelSelector from "./ImageModelSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
 import SlashMenu from "./SlashMenu.vue"
+import Spinner from "./Spinner.vue"
 import VariantSelector from "./VariantSelector.vue"
 import { useApp } from "@/stores/app"
 import { addFile, attachments, clearAttachments, composerFocusRequest, draft, removeAttachment } from "@/stores/draft"
@@ -11,6 +12,7 @@ import { acceptsImages } from "@/api/types"
 import type { FormInfo } from "@/api/types"
 import { useServer } from "@/stores/server"
 import { useMcp } from "@/stores/mcp"
+import { usePhotos } from "@/stores/photos"
 import { requestOpen, shortcutsVisible } from "@/stores/shortcuts"
 import { openSearch } from "@/stores/search"
 import { theme, toggleTheme } from "@/theme"
@@ -29,6 +31,7 @@ const { sending, isBusy, awaitingUser, pendingForms } = app.chat
 const { abort, compact, newChat, renameSession, runCommand, sendMessage } = app
 const { commands, directory, imageModels, selectedModelInfo, selectedModelVariants } = useServer()
 const mcp = useMcp()
+const photos = usePhotos()
 
 /**
  * Open the MCP servers dialog, which is the one command here that needs the
@@ -241,6 +244,43 @@ async function renameCurrent(title: string) {
   await renameSession(sessionID, title.trim())
 }
 
+/* ----------------------------- google photos ------------------------------ */
+
+/**
+ * What the Google Photos button is doing, in one line.
+ *
+ * The picking happens in another tab, so this title is the only thing telling
+ * the user why the composer's button is spinning.
+ */
+const photosTitle = computed(() => {
+  switch (photos.phase.value) {
+    case "authorizing":
+      return "Waiting for the Google sign-in…"
+    case "picking":
+      return "Pick photos in the Google Photos tab…"
+    case "attaching":
+      return "Attaching the picked photos…"
+    default:
+      return photos.configured.value
+        ? "Attach photos from Google Photos"
+        : "Attach from Google Photos (no Google OAuth client found — see the README)"
+  }
+})
+
+/** The same states, said in the strip under the input, where a Cancel button sits. */
+const photosProgress = computed(() => {
+  switch (photos.phase.value) {
+    case "authorizing":
+      return "Waiting for the Google sign-in in the tab that just opened…"
+    case "picking":
+      return "Pick photos in the Google Photos tab; they land here when you are done."
+    case "attaching":
+      return "Attaching the picked photos…"
+    default:
+      return ""
+  }
+})
+
 /* ------------------------------- composer -------------------------------- */
 
 function resize() {
@@ -256,6 +296,8 @@ onMounted(() => {
   resize()
   // Focus the input by default when the chat UI opens.
   nextTick(() => textarea.value?.focus())
+  // The Google Photos button appears only if the broker answers, so ask once.
+  void photos.init()
 })
 
 function handleFiles(files: ArrayLike<File> | null | undefined) {
@@ -401,6 +443,18 @@ function onKeydown(event: KeyboardEvent) {
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
     >
+      <div
+        v-if="photos.error.value || photos.notice.value || photos.busy.value"
+        class="photos-status"
+        :class="{ bad: !!photos.error.value }"
+      >
+        <span class="photos-text">{{ photos.busy.value ? photosProgress : photos.error.value || photos.notice.value }}</span>
+        <button v-if="photos.busy.value" type="button" class="photos-action" @click="photos.cancel()">Cancel</button>
+        <button v-else type="button" class="photos-action" title="Dismiss" @click="photos.clearMessages()">
+          <X :size="12" />
+        </button>
+      </div>
+
       <div v-if="attachments.length" class="attachments">
         <div v-for="item in attachments" :key="item.id" class="attachment" :class="{ file: !isImage(item.mime) }">
           <img v-if="isImage(item.mime)" :src="item.url" :alt="item.filename" />
@@ -449,6 +503,17 @@ function onKeydown(event: KeyboardEvent) {
           />
           <button type="button" class="attach" title="Attach files" @click="pickFiles">
             <Paperclip :size="16" />
+          </button>
+          <button
+            v-if="photos.available.value"
+            type="button"
+            class="attach photos"
+            :title="photosTitle"
+            :disabled="photos.busy.value"
+            @click="photos.pick()"
+          >
+            <Spinner v-if="photos.busy.value" :size="14" />
+            <Images v-else :size="16" />
           </button>
           <div class="control-group" title="Model and reasoning effort">
             <ModelSelector :grouped="selectedModelVariants.length ? 'start' : 'both'" />
@@ -588,6 +653,53 @@ function onKeydown(event: KeyboardEvent) {
 }
 .attach:hover {
   background: var(--bg-active);
+  color: var(--text);
+}
+.attach:disabled {
+  opacity: 0.75;
+  cursor: default;
+}
+.attach.photos:hover:not(:disabled) {
+  color: var(--accent);
+}
+/* The picker runs in another tab, so this row is where the flow's state and its
+   failures are visible back in the composer. */
+.photos-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 2px 8px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.photos-status.bad {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
+}
+.photos-text {
+  flex: 1;
+  min-width: 0;
+}
+.photos-action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.photos-action:hover {
+  background: var(--bg-hover);
   color: var(--text);
 }
 .input-wrap {

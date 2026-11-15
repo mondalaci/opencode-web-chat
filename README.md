@@ -18,6 +18,10 @@ targets (see the dependency version in `package.json`).
 - **Chat UI** — streaming assistant messages, Markdown with syntax highlighting
   (including Mermaid diagrams), reasoning blocks, collapsible tool calls with
   JSON-highlighted inputs/outputs, and inline file/image attachments.
+- **Google Photos** — an *Attach photos from Google Photos* button beside the
+  paperclip opens Google's own picker in a new tab (the Photos Picker API), and
+  what you pick there lands in the composer as ordinary attachments. It needs the
+  optional local broker (see [Google Photos](#google-photos)).
 - **Model selection** — applied to the open session through the server's switch
   endpoint, with a per-server remembered default. Every session runs on the
   `build` agent; there is no agent picker.
@@ -89,11 +93,14 @@ python3 -c "import json;print(json.load(open('$HOME/.config/opencode/service.jso
 
 ## Running with PM2
 
-`ecosystem.config.cjs` defines one PM2 app: `opencode-chat`, the **Vite dev
-server** on `127.0.0.1:4173`. It runs in dev mode, so it serves `src/` directly
-and hot-reloads on every file change — no rebuild needed and the UI is always
-current. To serve a static production build instead, run `bun run build` and
-switch the app's `args` to `preview --host 127.0.0.1 --port 4173`.
+`ecosystem.config.cjs` defines two PM2 apps: `opencode-chat`, the **Vite dev
+server** on `127.0.0.1:4173`, and `opencode-chat-photos`, the optional Google
+Photos broker on `127.0.0.1:4174` (see [Google Photos](#google-photos) — without
+it the app simply has no Google Photos button). The first runs in dev mode, so it
+serves `src/` directly and hot-reloads on every file change — no rebuild needed
+and the UI is always current. To serve a static production build instead, run
+`bun run build` and switch the app's `args` to
+`preview --host 127.0.0.1 --port 4173`.
 
 The opencode v2 server is supervised separately, in
 `~/.config/opencode/ecosystem.config.cjs`:
@@ -160,6 +167,81 @@ A bare folder name can match the same name in more than one place (for example a
 checkout under `~/projects` and one under `~/.local/share`), which would list the
 project twice and make the default ambiguous. Use an absolute path when exactly
 one project should appear.
+
+## Google Photos
+
+The composer's *Attach photos from Google Photos* button, beside the paperclip,
+opens Google's own picker in a new tab — search, albums, the whole library — and
+the photos ticked there arrive in the composer as attachments, ready to send with
+a prompt. Nothing is saved to disk first, and only what is ticked ever becomes
+readable.
+
+That is the [Photos Picker API](https://developers.google.com/photos/picker/guides/get-started-picker),
+and it needs two things a browser page cannot hold: an OAuth client secret, and
+the bearer token the picked media's bytes demand. So the repo carries a small
+loopback service for them, `server/photos-broker.mjs` (no dependencies), which
+owns the token and proxies the picker. The UI only ever talks to its own origin —
+Vite forwards `/photos-api` to the broker — which is why nothing here needs CORS.
+With the broker not running, as in a plain checkout, `GET /photos-api/status`
+fails, the button is not drawn at all, and the app is exactly as it was.
+
+### Setup
+
+1. **Enable the API.** In the project that owns the OAuth client: APIs &
+   Services → Library → **Photos Picker API** → Enable.
+
+2. **Add the scope.** OAuth consent screen → Data access → Add or remove scopes,
+   and add `https://www.googleapis.com/auth/photospicker.mediaitems.readonly`.
+   While the app is in *Testing*, the account doing the picking must also be a
+   test user.
+
+3. **Give the broker a client.** It looks for one in this order:
+
+   - `$PHOTOS_OAUTH_KEYS`
+   - `~/.config/opencode-web-chat/photos-oauth.keys.json`
+   - `~/.config/gmail-mcp/gcp-oauth.keys.json` — an already-installed desktop
+     client in a project of its own, so the picker usually needs no new
+     credentials at all
+
+   A desktop ("installed") client is what fits: its loopback redirect
+   (`http://localhost:4174/photos-api/oauth/callback`) needs no registration. A
+   *web* client would need that exact URI listed among its authorised redirect
+   URIs.
+
+4. **Run it.** As its own PM2 app it is already defined; standalone it is one
+   command:
+
+   ```bash
+   node server/photos-broker.mjs
+   ```
+
+The first press of the composer's button opens Google's consent; the tokens are
+then kept in `~/.config/opencode-web-chat/photos-token.json` (mode 600), and the
+refresh token in there is what keeps the button working from then on.
+
+### Knobs
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `PHOTOS_BROKER_PORT` | `4174` | Loopback port; must match the Vite proxy. |
+| `PHOTOS_OAUTH_KEYS` | see above | The OAuth client JSON to use. |
+| `PHOTOS_TOKEN_FILE` | `~/.config/opencode-web-chat/photos-token.json` | Where the tokens live. |
+| `PHOTOS_MAX_PIXELS` | `2048` | Long edge of an image fetched for an attachment. |
+
+### Worth knowing
+
+- **Photos only.** A picked video is left out, with a note in the composer: what
+  travels to the model is a `data:` URL, and a video is neither useful there nor
+  small. Images are fetched at a bounded long edge for the same reason.
+- **Google's picker wants the tab signed in to the same account** that owns the
+  session; that rule is Google's, not this app's.
+- **The consent has to be given on the machine running the broker**, since that
+  is where Google's loopback redirect lands. A browser on another device can use
+  the picker once that consent exists.
+- **The broker serves loopback origins only** (`localhost`, `*.localhost`,
+  `127.0.0.1`), so a page that is not this UI cannot drive the Google token.
+- **Sessions are deleted on the way out** — picked, cancelled or expired — as
+  Google asks. A picker tab closed by hand simply times the session out.
 
 ## Status in the system tray
 
@@ -260,14 +342,18 @@ src/
     discovery.ts    Port probing and v2 server detection
     types.ts        Re-exported API contract + small app-facing helpers
     search.ts       Binds the shared opencode-search client
+    photos.ts       The local Google Photos broker, over the Vite proxy
   stores/
     connection.ts   Instance list, saved connections, client lifecycle
     server.ts       Agents, models, providers, projects, preferences
     sessions.ts     Session list + mutations (rename, delete)
     chat.ts         Messages, streaming assembly, permissions, forms
     live.ts         Shared SSE subscription with reconnect + resync
+    photos.ts       Pick-from-Google-Photos: consent, poll, attach
     app.ts          Wires the stores together into app-level actions
   components/       UI (Reka UI primitives + custom chat components)
+server/
+  photos-broker.mjs OAuth token holder + Photos Picker proxy (optional)
 ```
 
 ## API surface used
@@ -298,6 +384,9 @@ src/
 - **Attachments** are sent as `data:` URIs in the prompt's `files` list, which
   the server accepts for files that only exist in the browser. Files echoed back
   on a message are rendered inline (image preview, text preview, download).
+- **Google Photos is opt-in infrastructure**: the picker button appears only when
+  the local broker is running, and the broker — not this app — is what holds the
+  Google credentials and the token. See [Google Photos](#google-photos).
 - **Public sharing is gone**: v2 has no share endpoint, so the header offers a
   `#` button that copies the current session id instead of creating a public
   URL. Sharing can be configured on the server side (`share` in the config).

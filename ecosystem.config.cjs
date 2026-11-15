@@ -35,5 +35,21 @@ module.exports = {
       max_restarts: 20,
       restart_delay: 2000,
     },
+    {
+      // The Google Photos broker: a loopback service that owns the OAuth client
+      // secret and the refresh token, and proxies the Picker API for the UI
+      // (reached through the Vite proxy under /photos-api). It is a plain .mjs
+      // file with no dependencies, so node runs it directly.
+      //
+      // This one app is optional: without it the UI simply has no Google Photos
+      // button (`photos.available` stays false).
+      name: "opencode-chat-photos",
+      cwd: CHAT_DIR,
+      script: path.join(CHAT_DIR, "server", "photos-broker.mjs"),
+      interpreter: "node",
+      autorestart: true,
+      max_restarts: 20,
+      restart_delay: 2000,
+    },
   ],
 }
