@@ -249,13 +249,15 @@ async function renameCurrent(title: string) {
 /**
  * What the Google Photos button is doing, in one line.
  *
- * The picking happens in this tab, on Google's page, so the title only has to say
- * where the flow is; the strip under the input carries the instructions.
+ * The picking happens in another tab, so this title is the only thing telling
+ * the user why the composer's button is spinning.
  */
 const photosTitle = computed(() => {
   switch (photos.phase.value) {
+    case "authorizing":
+      return "Waiting for the Google sign-in…"
     case "picking":
-      return "Waiting for the photos you picked…"
+      return "Pick photos in the Google Photos tab…"
     case "attaching":
       return "Attaching the picked photos…"
     default:
@@ -265,23 +267,19 @@ const photosTitle = computed(() => {
   }
 })
 
-/** The line in the strip under the input, where the flow's buttons live too. */
-const photosStatus = computed(() => {
-  if (photos.phase.value === "picking") return "Pick photos in this tab, then press Back to return here."
-  if (photos.phase.value === "attaching") return "Attaching the picked photos…"
-  if (photos.error.value) return photos.error.value
-  if (photos.notice.value) return photos.notice.value
-  if (photos.available.value && !photos.authorized.value) return "Google Photos is not connected."
-  return ""
+/** The same states, said in the strip under the input, where a Cancel button sits. */
+const photosProgress = computed(() => {
+  switch (photos.phase.value) {
+    case "authorizing":
+      return "Waiting for the Google sign-in in the tab that just opened…"
+    case "picking":
+      return "Pick photos in the Google Photos tab; they land here when you are done."
+    case "attaching":
+      return "Attaching the picked photos…"
+    default:
+      return ""
+  }
 })
-
-const photosStatusVisible = computed(
-  () =>
-    photos.busy.value ||
-    !!photos.error.value ||
-    !!photos.notice.value ||
-    (photos.available.value && !photos.authorized.value),
-)
 
 /* ------------------------------- composer -------------------------------- */
 
@@ -445,24 +443,12 @@ function onKeydown(event: KeyboardEvent) {
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
     >
-      <div v-if="photosStatusVisible" class="photos-status" :class="{ bad: !!photos.error.value }">
-        <span class="photos-text">{{ photosStatus }}</span>
-        <a
-          v-if="photos.available.value && !photos.authorized.value"
-          class="photos-action"
-          :href="photos.consentUrl()"
-          title="Sign in to Google Photos, then pick again"
-          >Connect</a
-        >
-        <button
-          v-if="photos.pending.value && photos.phase.value === 'picking'"
-          type="button"
-          class="photos-action"
-          title="Go back to the picker for the session already open"
-          @click="photos.reopen()"
-        >
-          Open picker
-        </button>
+      <div
+        v-if="photos.error.value || photos.notice.value || photos.busy.value"
+        class="photos-status"
+        :class="{ bad: !!photos.error.value }"
+      >
+        <span class="photos-text">{{ photos.busy.value ? photosProgress : photos.error.value || photos.notice.value }}</span>
         <button v-if="photos.busy.value" type="button" class="photos-action" @click="photos.cancel()">Cancel</button>
         <button v-else type="button" class="photos-action" title="Dismiss" @click="photos.clearMessages()">
           <X :size="12" />
@@ -524,7 +510,7 @@ function onKeydown(event: KeyboardEvent) {
             class="attach photos"
             :title="photosTitle"
             :disabled="photos.busy.value"
-            @click="photos.start()"
+            @click="photos.pick()"
           >
             <Spinner v-if="photos.busy.value" :size="14" />
             <Images v-else :size="16" />
@@ -710,7 +696,6 @@ function onKeydown(event: KeyboardEvent) {
   color: inherit;
   font: inherit;
   font-size: 11.5px;
-  text-decoration: none;
   cursor: pointer;
 }
 .photos-action:hover {

@@ -19,9 +19,9 @@ targets (see the dependency version in `package.json`).
   (including Mermaid diagrams), reasoning blocks, collapsible tool calls with
   JSON-highlighted inputs/outputs, and inline file/image attachments.
 - **Google Photos** — an *Attach photos from Google Photos* button beside the
-  paperclip takes the tab to Google's own picker (the Photos Picker API), and what
-  you pick there lands in the composer as ordinary attachments when you come back.
-  It needs the optional local broker (see [Google Photos](#google-photos)).
+  paperclip opens Google's own picker in a new tab (the Photos Picker API), and
+  what you pick there lands in the composer as ordinary attachments. It needs the
+  optional local broker (see [Google Photos](#google-photos)).
 - **Model selection** — applied to the open session through the server's switch
   endpoint, with a per-server remembered default. Every session runs on the
   `build` agent; there is no agent picker.
@@ -171,26 +171,10 @@ one project should appear.
 ## Google Photos
 
 The composer's *Attach photos from Google Photos* button, beside the paperclip,
-takes the tab to Google's own picker — search, albums, the whole library — and the
-photos ticked there arrive in the composer as attachments, ready to send with a
-prompt. Nothing is saved to disk first, and only what is ticked ever becomes
+opens Google's own picker in a new tab — search, albums, the whole library — and
+the photos ticked there arrive in the composer as attachments, ready to send with
+a prompt. Nothing is saved to disk first, and only what is ticked ever becomes
 readable.
-
-**The picker takes the tab over rather than opening a window**, and that is forced
-by Google: `photos.google.com` sends `x-frame-options: SAMEORIGIN`, so nothing in
-this app may frame it — there is no overlay, no inline picker, no iframe. Taking
-the tab over is the flow Google documents for a web app, and it gives the picker
-the whole page. Pressing Google's **Done** leaves a *"Done! Continue in the other
-app or device"* screen; the browser's own **Back** returns to the chat, and that is
-the moment the app collects the selection, attaches it and deletes the session.
-
-That means the page is gone while the user is picking, so the two things a trip
-back must not lose are kept on the browser's side: the picking session (in
-`sessionStorage`, under `opencode-photos-pending`) and the composer's draft text
-(the same store, under `opencode-draft`). Attachments already in the composer are
-the exception — they are data URLs held in memory, and a navigation drops them.
-While the flow is waiting, the strip under the input says so and offers **Open
-picker** (back to the session still open) and **Cancel**.
 
 That is the [Photos Picker API](https://developers.google.com/photos/picker/guides/get-started-picker),
 and it needs two things a browser page cannot hold: an OAuth client secret, and
@@ -231,12 +215,9 @@ fails, the button is not drawn at all, and the app is exactly as it was.
    node server/photos-broker.mjs
    ```
 
-The first press of the composer's button needs Google's consent once; until it is
-given the strip under the input offers **Connect**, which is a link to the broker
-(`/photos-api/oauth/start`), and the broker's callback page links back to the
-chat. The tokens are then kept in `~/.config/opencode-web-chat/photos-token.json`
-(mode 600), and the refresh token in there is what keeps the button working from
-then on.
+The first press of the composer's button opens Google's consent; the tokens are
+then kept in `~/.config/opencode-web-chat/photos-token.json` (mode 600), and the
+refresh token in there is what keeps the button working from then on.
 
 ### Knobs
 
@@ -249,27 +230,18 @@ then on.
 
 ### Worth knowing
 
-- **The picker takes the tab, because it cannot be framed.** Both halves are
-  Google's doing: `x-frame-options: SAMEORIGIN` on `photos.google.com` rules out
-  any overlay, inline picker or iframe, and `cross-origin-opener-policy:
-  same-origin-allow-popups` severs the opener of any window opened for it — so a
-  popup would be both foreign to the tab and impossible to manage. Taking the tab
-  over is what Google documents for a web app, and it is why the session and the
-  draft are kept in `sessionStorage`: the page does not survive the trip.
 - **Photos only.** A picked video is left out, with a note in the composer: what
   travels to the model is a `data:` URL, and a video is neither useful there nor
   small. Images are fetched at a bounded long edge for the same reason.
-- **Google's picker wants the same account** that owns the session; that rule is
-  Google's, not this app's.
+- **Google's picker wants the tab signed in to the same account** that owns the
+  session; that rule is Google's, not this app's.
 - **The consent has to be given on the machine running the broker**, since that
-  is where Google's loopback redirect lands. Its `return` parameter is honoured
-  only for a loopback origin, so the callback page cannot be turned into an open
-  redirect.
+  is where Google's loopback redirect lands. A browser on another device can use
+  the picker once that consent exists.
 - **The broker serves loopback origins only** (`localhost`, `*.localhost`,
   `127.0.0.1`), so a page that is not this UI cannot drive the Google token.
 - **Sessions are deleted on the way out** — picked, cancelled or expired — as
-  Google asks. Walking away mid-pick leaves one open until it expires; it is
-  collected by the next visit, and `Cancel` ends it at once.
+  Google asks. A picker tab closed by hand simply times the session out.
 
 ## Status in the system tray
 

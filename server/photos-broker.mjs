@@ -11,18 +11,13 @@
  * What it does, in the order the UI uses it:
  *
  *   1. `GET  /photos-api/status`                     — is it configured, is it authorized
- *   2. `GET  /photos-api/oauth/start?return=<origin>`— Google's consent, in the tab itself
+ *   2. `GET  /photos-api/auth-url`                   — the Google consent URL to open
  *   3. `GET  /photos-api/oauth/callback`             — Google's redirect; stores the tokens
  *   4. `POST /photos-api/sessions`                   — a picking session, plus its `pickerUri`
  *   5. `GET  /photos-api/sessions/{id}`              — poll until `mediaItemsSet`
  *   6. `GET  /photos-api/sessions/{id}/items`        — the picked items
  *   7. `GET  /photos-api/sessions/{id}/items/{i}/content` — the bytes, token attached
  *   8. `DELETE /photos-api/sessions/{id}`            — clean up, as Google asks
- *
- * The consent and the picker both happen in the app's own tab, so `/oauth/start`
- * carries the app's origin through Google as `state` and hands it back to the
- * callback page, which offers a link home. Only a loopback origin is accepted
- * there, so the parameter cannot be turned into an open redirect.
  *
  * Only picked media is ever reachable: a content request is resolved against an
  * item the broker itself listed, so a caller cannot make it fetch an arbitrary
@@ -76,40 +71,6 @@ const TOKEN_FILE = process.env.PHOTOS_TOKEN_FILE || join(homedir(), ".config", "
 
 /** The `redirect_uri` Google is handed. A desktop client allows any loopback port. */
 const REDIRECT_URI = `http://localhost:${PORT}/photos-api/oauth/callback`
-
-/**
- * Whether a URL may be handed back to the user as "return to the app".
- *
- * Only the loopback origins the UI can legitimately be served from, so the
- * `return` parameter cannot be turned into an open redirect.
- */
-function loopbackOrigin(value) {
-  try {
-    const url = new URL(value)
-    if (!/^https?:$/.test(url.protocol)) return null
-    if (!/^(localhost|[a-z0-9-]+\.localhost|127\.0\.0\.1|\[::1\])$/i.test(url.hostname)) return null
-    return url.origin
-  } catch {
-    return null
-  }
-}
-
-/** The Google consent URL, with the app's origin threaded through as `state`. */
-function consentUrl(client, returnTo) {
-  const query = new URLSearchParams({
-    client_id: client.clientId,
-    redirect_uri: REDIRECT_URI,
-    response_type: "code",
-    scope: SCOPE,
-    // Offline access plus an explicit prompt, so a refresh token always comes back
-    // and the broker can keep working without the user present.
-    access_type: "offline",
-    prompt: "consent",
-    include_granted_scopes: "true",
-  })
-  if (returnTo) query.set("state", returnTo)
-  return `${AUTH_ENDPOINT}?${query}`
-}
 
 /* -------------------------------------------------------------------------- */
 /* OAuth client and tokens                                                    */
@@ -303,8 +264,8 @@ function sendError(response, error) {
   sendJson(response, status, { error: { message: error?.message || String(error), code: error?.code } })
 }
 
-/** Answers Google's redirect with a page the user can close — or return from. */
-function sendCallbackPage(response, { ok, message, returnTo }) {
+/** Answers Google's redirect with a page the user can close. */
+function sendCallbackPage(response, { ok, message }) {
   const body = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>OpenCode Chat</title>
 <style>
@@ -315,15 +276,10 @@ function sendCallbackPage(response, { ok, message, returnTo }) {
   h1 { font-size: 1.05rem; margin: 0 0 .6rem }
   p { margin: 0; color: #a0a0a0; font-size: .9rem }
   .ok { color: #6bd18a } .bad { color: #f0886f }
-  a { display: inline-block; margin-top: 1.2rem; padding: .5rem 1rem; border-radius: 999px;
-      border: 1px solid #3a3a3a; background: #2a2a2a; color: #ececec; text-decoration: none;
-      font-size: .9rem }
-  a:hover { background: #383838 }
 </style></head>
 <body><div>
 <h1 class="${ok ? "ok" : "bad"}">${ok ? "Google Photos connected" : "Google Photos could not be connected"}</h1>
 <p>${message}</p>
-${returnTo ? `<a href="${returnTo}">Back to OpenCode Chat</a>` : ""}
 </div></body></html>`
   response.writeHead(ok ? 200 : 400, { "content-type": "text/html; charset=utf-8" })
   response.end(body)
@@ -344,29 +300,32 @@ async function handle(request, response) {
     })
   }
 
-  if (path === "/photos-api/oauth/start" && method === "GET") {
+  if (path === "/photos-api/auth-url" && method === "GET") {
     const client = await loadClient()
     if (!client) {
       throw Object.assign(new Error(`No Google OAuth client found. Looked in: ${KEYS_PATHS.join(", ")}`), { status: 500 })
     }
-    // 303 rather than a JSON URL: the consent belongs in the tab the user is
-    // already in, and a redirect needs no client-side code to get there.
-    response.writeHead(303, { location: consentUrl(client, loopbackOrigin(url.searchParams.get("return"))) })
-    return response.end()
+    const query = new URLSearchParams({
+      client_id: client.clientId,
+      redirect_uri: REDIRECT_URI,
+      response_type: "code",
+      scope: SCOPE,
+      // Offline access plus an explicit prompt, so a refresh token always comes back
+      // and the broker can keep working without the user present.
+      access_type: "offline",
+      prompt: "consent",
+      include_granted_scopes: "true",
+    })
+    return sendJson(response, 200, { url: `${AUTH_ENDPOINT}?${query}` })
   }
 
   if (path === "/photos-api/oauth/callback" && method === "GET") {
-    const returnTo = loopbackOrigin(url.searchParams.get("state"))
     const failure = url.searchParams.get("error")
-    if (failure) {
-      return sendCallbackPage(response, { ok: false, message: `${failure}: the consent was not granted.`, returnTo })
-    }
+    if (failure) return sendCallbackPage(response, { ok: false, message: `${failure}: the consent was not granted.` })
     const code = url.searchParams.get("code")
-    if (!code) {
-      return sendCallbackPage(response, { ok: false, message: "Google did not return an authorization code.", returnTo })
-    }
+    if (!code) return sendCallbackPage(response, { ok: false, message: "Google did not return an authorization code." })
     const client = await loadClient()
-    if (!client) return sendCallbackPage(response, { ok: false, message: "The OAuth client disappeared.", returnTo })
+    if (!client) return sendCallbackPage(response, { ok: false, message: "The OAuth client disappeared." })
 
     const tokenResponse = await fetch(TOKEN_ENDPOINT, {
       method: "POST",
@@ -384,7 +343,6 @@ async function handle(request, response) {
       return sendCallbackPage(response, {
         ok: false,
         message: body.error_description || body.error || "The token exchange failed.",
-        returnTo,
       })
     }
     await saveTokens({
@@ -393,11 +351,7 @@ async function handle(request, response) {
       scope: body.scope,
       expiry_date: Date.now() + (body.expires_in ?? 3600) * 1000,
     })
-    return sendCallbackPage(response, {
-      ok: true,
-      message: "You can close this tab, or go back to the chat and pick photos.",
-      returnTo,
-    })
+    return sendCallbackPage(response, { ok: true, message: "You can close this tab and return to the chat." })
   }
 
   if (path === "/photos-api/sessions" && method === "POST") {
