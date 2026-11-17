@@ -310,6 +310,110 @@ a {
   color: #8b949e;
 }
 
+/*
+ * highlight.js on a surface that follows the theme: a highlighted tool summary,
+ * which sits on the tool row's own background rather than the always-dark
+ * message code block. The light values are darker so they clear 4.5:1 on the
+ * light row background, including its hover tone; the dark theme reuses the
+ * message code block palette.
+ */
+.hljs-themed .hljs-comment,
+.hljs-themed .hljs-quote,
+.hljs-themed .hljs-meta {
+  color: #57606a;
+}
+.hljs-themed .hljs-keyword,
+.hljs-themed .hljs-selector-tag,
+.hljs-themed .hljs-literal,
+.hljs-themed .hljs-type {
+  color: #b31d28;
+}
+.hljs-themed .hljs-string,
+.hljs-themed .hljs-attr,
+.hljs-themed .hljs-template-tag {
+  color: #032f62;
+}
+.hljs-themed .hljs-number,
+.hljs-themed .hljs-symbol {
+  color: #005cc5;
+}
+/* Flags and URLs are tokens the bash grammar leaves plain; the summary
+   highlighter adds them so a command reads as colourfully as a code block. */
+.hljs-themed .hljs-flag {
+  color: #a21caf;
+}
+.hljs-themed .hljs-link {
+  color: #0e7490;
+}
+/* Commands are the most frequent token in a shell summary, so they get their
+   own warm hue instead of the blue that numbers and symbols share. */
+.hljs-themed .hljs-built_in {
+  color: #953800;
+}
+.hljs-themed .hljs-title,
+.hljs-themed .hljs-title.class_,
+.hljs-themed .hljs-title.function_ {
+  color: #6f42c1;
+}
+.hljs-themed .hljs-variable,
+.hljs-themed .hljs-name {
+  color: #a33f00;
+}
+.hljs-themed .hljs-tag {
+  color: #17632a;
+}
+
+/* Unhighlighted text in a highlighted summary; the row's own faint tone would
+   leave the command itself too pale to read. */
+.hljs-themed {
+  color: #616166;
+}
+html[data-theme="dark"] .hljs-themed {
+  color: var(--text-muted);
+}
+
+html[data-theme="dark"] .hljs-themed .hljs-comment,
+html[data-theme="dark"] .hljs-themed .hljs-quote,
+html[data-theme="dark"] .hljs-themed .hljs-meta {
+  color: #939ca5;
+}
+html[data-theme="dark"] .hljs-themed .hljs-keyword,
+html[data-theme="dark"] .hljs-themed .hljs-selector-tag,
+html[data-theme="dark"] .hljs-themed .hljs-literal,
+html[data-theme="dark"] .hljs-themed .hljs-type {
+  color: #ff7b72;
+}
+html[data-theme="dark"] .hljs-themed .hljs-string,
+html[data-theme="dark"] .hljs-themed .hljs-attr,
+html[data-theme="dark"] .hljs-themed .hljs-template-tag {
+  color: #a5d6ff;
+}
+html[data-theme="dark"] .hljs-themed .hljs-number,
+html[data-theme="dark"] .hljs-themed .hljs-symbol {
+  color: #79c0ff;
+}
+html[data-theme="dark"] .hljs-themed .hljs-flag {
+  color: #e879f9;
+}
+html[data-theme="dark"] .hljs-themed .hljs-link {
+  color: #67e8f9;
+}
+html[data-theme="dark"] .hljs-themed .hljs-built_in {
+  color: #ffa657;
+}
+html[data-theme="dark"] .hljs-themed .hljs-title,
+html[data-theme="dark"] .hljs-themed .hljs-title.class_,
+html[data-theme="dark"] .hljs-themed .hljs-title.function_ {
+  color: #d2a8ff;
+}
+html[data-theme="dark"] .hljs-themed .hljs-variable,
+html[data-theme="dark"] .hljs-themed .hljs-name {
+  color: #ffa657;
+}
+html[data-theme="dark"] .hljs-themed .hljs-tag {
+  color: #7ee787;
+}
+
 /* Shared overlay primitives (Reka UI is unstyled) */
 .opencode-overlay {
   position: fixed;
