@@ -352,9 +352,39 @@ a {
   margin: 4px;
 }
 
+/*
+ * The pill a floating conversation control wears: the step buttons hung on the
+ * thread's scrollbar, and the way back to the end of the conversation, which
+ * hangs at the bottom of the window. Global because the two are drawn by
+ * different components — the second one outside the thread — and they stand in
+ * one column, so they have to be the same pill.
+ */
+.float-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  box-shadow: var(--shadow);
+  transition:
+    color 0.12s,
+    border-color 0.12s;
+}
+.float-pill:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+/* Nothing that way: the control is still on screen, saying so. */
+.float-pill:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* Shortcut key badge shown while the modifier is held. */
-.kbd {
-  font-family: var(--font-mono);
+.kbd {  font-family: var(--font-mono);
   font-size: 10.5px;
   line-height: 1;
   min-width: 16px;
@@ -372,6 +402,17 @@ a {
   position: absolute;
   top: -6px;
   right: -6px;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+/* Kept within the control instead of over its corner: the step buttons sit at
+   the thread's right edge, where the corner would reach over the scrollbar's
+   lane and its marks. */
+.kbd.inside {
+  position: absolute;
+  top: 1px;
+  right: 1px;
   z-index: 3;
   pointer-events: none;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);

@@ -2,12 +2,17 @@
 import { computed, nextTick, ref, watch } from "vue"
 import MessageItem from "./MessageItem.vue"
 import Spinner from "./Spinner.vue"
+import ThreadPrompts from "./ThreadPrompts.vue"
 import { useChat } from "@/stores/chat"
 
-const { messages, conversation, loading, currentSessionID, scrollToBottomRequest, pendingForms, pendingPermissions, isBusy, awaitingUser } = useChat()
+const { messages, conversation, loading, currentSessionID, scrollToBottomRequest, contentBelow, pendingForms, pendingPermissions, isBusy, awaitingUser } = useChat()
 
 const viewport = ref<HTMLElement | null>(null)
+const content = ref<HTMLElement | null>(null)
 const pinned = ref(true)
+
+/** What the scrollbar's ticks mark: the prompts, in the order they were asked. */
+const promptIDs = computed(() => conversation.value.filter((message) => message.type === "user").map((message) => message.id))
 
 // Distance (px) from the bottom that still counts as "at the bottom".
 const BOTTOM_EPSILON = 8
@@ -112,6 +117,14 @@ watch(scrollToBottomRequest, () => {
   void scrollToBottom()
 })
 
+/**
+ * Publish the one thing the chrome outside the thread cannot see: whether the
+ * conversation continues below the fold. The button that answers it hangs at the
+ * bottom of the window, in the composer's row, and only this element's scroll
+ * geometry knows the answer.
+ */
+watch(pinned, (value) => { contentBelow.value = !value }, { immediate: true })
+
 watch(currentSessionID, () => {
   pinned.value = true
   programmatic = false
@@ -132,36 +145,55 @@ watch(
 </script>
 
 <template>
-  <div
-    ref="viewport"
-    class="thread"
-    @scroll="onScroll"
-    @wheel="onWheel"
-    @touchstart.passive="onTouchStart"
-    @touchmove.passive="onTouchMove"
-  >
-    <div v-if="loading" class="loading"><Spinner :size="18" /></div>
+  <div class="thread-host">
+    <div
+      ref="viewport"
+      class="thread"
+      @scroll="onScroll"
+      @wheel="onWheel"
+      @touchstart.passive="onTouchStart"
+      @touchmove.passive="onTouchMove"
+    >
+      <div v-if="loading" class="loading"><Spinner :size="18" /></div>
 
-    <template v-else>
-      <MessageItem
-        v-for="message in conversation"
-        :key="message.id"
-        :message="message"
-        :streaming="isBusy && message.id === lastAssistantID && message.type === 'assistant' && !message.time.completed"
-        :caret="message.id === streamingTextID"
-        :latest="message.id === lastAssistantID"
-      />
-    </template>
+      <template v-else>
+        <!-- One element for the whole conversation, so that a reply growing
+             while the reader is somewhere else still moves what hangs off the
+             scrollbar: the marks are placed by the height of this, and a message
+             arriving above them is not the only thing that changes it. -->
+        <div ref="content" class="content">
+          <MessageItem
+            v-for="message in conversation"
+            :key="message.id"
+            :message="message"
+            :streaming="isBusy && message.id === lastAssistantID && message.type === 'assistant' && !message.time.completed"
+            :caret="message.id === streamingTextID"
+            :latest="message.id === lastAssistantID"
+          />
 
-    <!-- Turn-level widgets the app weaves into the conversation: questions and
-         permission cards sit after the last message, in the flow of the thread. -->
-    <slot />
+          <!-- Turn-level widgets the app weaves into the conversation: questions
+               and permission cards sit after the last message, in the flow of the
+               thread. -->
+          <slot />
 
-    <div class="spacer"></div>
+          <div class="spacer"></div>
+        </div>
+      </template>
+    </div>
+
+    <ThreadPrompts :body="viewport" :content="content" :ids="promptIDs" />
   </div>
 </template>
 
 <style scoped>
+/* A frame around the scrolling thread for the ticks to be positioned in: they
+   belong on the scrollbar, which is a child's furniture and not the thread's. */
+.thread-host {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
 .thread {
   flex: 1;
   overflow-y: auto;
@@ -171,12 +203,24 @@ watch(
      rather than drag the whole conversation out of view. */
   overflow-x: hidden;
   padding: 20px 20px 0;
+  /* Message metadata hangs in the gutter outside the content column, and how
+     much gutter there is depends on this element's width — not the window's,
+     which the sidebar also eats into. So the thread is a query container, and
+     `MessageItem` asks it whether there is room. */
+  container: thread / inline-size;
   /* No `scroll-behavior: smooth`: the animation fires intermediate scroll
      events that re-pin the view to the bottom mid-follow, fighting a user who
      is scrolling up. Programmatic follows are instant instead. */
   /* Reserve a symmetric gutter so a scrollbar does not shift the centered
      content column off the composer's center. */
   scrollbar-gutter: stable both-edges;
+  /* The bar is still here — it keeps its width, and dragging it still scrolls —
+     but it is not painted: the theme pads a scrollbar's painted thumb inside the
+     track, and that padding is several times the height of the marks hanging off
+     this thread, so the browser's thumb and the marks could never line up.
+     `ThreadPrompts` draws the thumb instead, from the same arithmetic the marks
+     use. */
+  scrollbar-color: transparent transparent;
 }
 .loading {
   display: grid;

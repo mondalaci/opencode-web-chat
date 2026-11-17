@@ -16,6 +16,21 @@ export function requestOpen(which: "model" | "project" | "sessions" | "effort" |
   openRequests[which] += 1
 }
 
+/**
+ * Steps through the prompts of the open conversation, counted rather than
+ * called: the component that can take a step — the thread's prompt marks and
+ * buttons — is mounted only while a conversation is on screen, and a step asked
+ * for when it is not (the picker, a session still loading) should come to nothing
+ * rather than reach into a component that is not there. A count that nobody
+ * watched is a step that nobody took, which is what a shortcut pressed with no
+ * conversation open means.
+ */
+export const promptSteps = reactive({ up: 0, down: 0 })
+
+export function requestPromptStep(which: "up" | "down") {
+  promptSteps[which] += 1
+}
+
 /** Key codes (layout/modifier independent) for the shortcuts. */
 export const shortcutKeys = {
   model: "KeyM",
@@ -28,6 +43,21 @@ export const shortcutKeys = {
   tools: "KeyT",
   pronounce: "KeyV",
   stop: "KeyX",
+  /**
+   * Stepping through the conversation's prompts.
+   *
+   * `Alt` + an arrow: what Slack and Discord put on "previous / next" in their
+   * sidebars, so the gesture is one a chat is already expected to have, and the
+   * arrows say the same thing as the arrows on the two buttons. No browser holds
+   * either pair — the familiar combos on arrows all belong to the other ones
+   * (`Alt` + left/right walk history, `Alt` + home opens the home page, and the
+   * tab-walking pair is on `PageUp`/`PageDown`, which is why this is not that
+   * pair: it switches browser tabs in a page that is not an app's own window,
+   * and a shortcut that disappears on the web is not one to share with the
+   * desktop build).
+   */
+  promptUp: "ArrowUp",
+  promptDown: "ArrowDown",
 } as const
 
 /**

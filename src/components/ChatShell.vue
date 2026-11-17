@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { X, CircleAlert, Check, Hash, Moon, Sun } from "lucide-vue-next"
+import { X, ArrowDownToLine, CircleAlert, Check, Hash, Moon, Sun } from "lucide-vue-next"
 import type { SessionMessageAssistant } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
@@ -11,19 +11,29 @@ import PromptDock from "./PromptDock.vue"
 import { TITLE_SUFFIX } from "@/brand"
 import { useApp } from "@/stores/app"
 import { requestComposerFocus } from "@/stores/draft"
-import { requestOpen, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
+import { requestOpen, requestPromptStep, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
 import { theme, toggleTheme } from "@/theme"
 import { formatConversationDate, formatConversationDateTime, formatCost, formatTokens, formatTokensPerSecond } from "@/utils/format"
 
 const app = useApp()
 const { current } = app.sessions
-const { error, messages, isBusy, awaitingUser } = app.chat
+const { error, messages, isBusy, awaitingUser, contentBelow, scrollToBottomRequest } = app.chat
 const { models, selectedModelInfo } = app.server
 const { newChat } = app
 
 /** Briefly confirm that the session id reached the clipboard. */
 const sessionCopied = ref(false)
+
+/**
+ * All the way down, and follow what arrives next. The request is the one the
+ * thread answers by pinning itself to the end, so a reader who has wandered up
+ * the conversation rejoins it rather than being parked at the bottom and left
+ * behind by the next reply.
+ */
+function toBottom() {
+  scrollToBottomRequest.value++
+}
 
 async function copySessionID() {
   const id = current.value?.id
@@ -204,6 +214,18 @@ function onKeyDown(event: KeyboardEvent) {
       event.preventDefault()
       if (isBusy.value || awaitingUser.value) void app.abort()
       break
+    case shortcutKeys.promptUp:
+      // The composer's command menu walks its rows with the arrows, and claims
+      // them with `preventDefault`; a closer handler wins.
+      if (event.defaultPrevented) break
+      event.preventDefault()
+      requestPromptStep("up")
+      break
+    case shortcutKeys.promptDown:
+      if (event.defaultPrevented) break
+      event.preventDefault()
+      requestPromptStep("down")
+      break
     case shortcutKeys.newChat:
       event.preventDefault()
       void newChat()
@@ -301,6 +323,22 @@ onBeforeUnmount(() => {
           <button @click="dismissError"><X :size="14" /></button>
         </div>
         <Composer />
+
+        <!-- The way back to the end of the conversation. It hangs at the bottom of
+             the window rather than in the thread's own corner: the thread ends
+             above the composer, and this is chrome for the whole pane. It takes
+             the same right inset as the step buttons the thread draws, so the
+             three stand in one column. -->
+        <button
+          v-if="contentBelow"
+          type="button"
+          class="to-bottom float-pill"
+          title="Scroll to the end of the conversation"
+          aria-label="Scroll to the end of the conversation"
+          @click="toBottom"
+        >
+          <ArrowDownToLine :size="14" />
+        </button>
       </div>
     </main>
 
@@ -446,6 +484,23 @@ onBeforeUnmount(() => {
 .bottom {
   position: relative;
   flex: none;
+}
+/* The way back to the end of the conversation: the same pill the thread's step
+   buttons wear, at the bottom of the window, in the composer's row, so the three
+   controls stand in one column down the pane's right edge. */
+.to-bottom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+}
+/* Below this the composer keeps only a 16px gutter — the same breakpoint its own
+   card narrows at — and the corner belongs to its send button, so there is no
+   lane left for this one to float in. */
+@media (max-width: 900px) {
+  .to-bottom {
+    display: none;
+  }
 }
 /* Fade the conversation out as it approaches the composer. */
 .bottom::before {
