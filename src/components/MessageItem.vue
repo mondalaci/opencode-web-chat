@@ -16,6 +16,7 @@ import { isStop } from "@/utils/stop"
 import { shortcutsVisible } from "@/stores/shortcuts"
 import { useServer } from "@/stores/server"
 import { useApp } from "@/stores/app"
+import Caret from "./Caret.vue"
 import Markdown from "./Markdown.vue"
 import PartFile from "./PartFile.vue"
 import PartMessageCompose from "./PartMessageCompose.vue"
@@ -265,11 +266,12 @@ const shellExit = computed(() => {
           </template>
         </template>
 
-        <!-- The caret is the cursor of arriving prose. The parent shows it only
-             while this message's trailing part is streaming text: a running tool
-             spins on its own row, and a turn blocked on a question is waiting for
-             the reader, not the model. -->
-        <div v-if="caret" class="caret"></div>
+        <!-- The caret tracks the *turn*, not this message's text: a step ends when
+             its generation does, while its tools are still running, so keying it
+             off `time.completed` left the whole tool phase with no sign of
+             progress at all. The parent withholds it while the turn waits on the
+             reader. -->
+        <Caret v-if="caret" />
         <div v-if="errorMessage" class="error" :class="{ stopped: stoppedStep }">{{ errorMessage }}</div>
         <div v-if="retryNote" class="retry">{{ retryNote }}</div>
         <div v-if="truncated" class="truncated">
@@ -411,19 +413,6 @@ const shellExit = computed(() => {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.caret {
-  display: inline-block;
-  width: 8px;
-  height: 15px;
-  background: var(--text);
-  vertical-align: text-bottom;
-  animation: opencode-blink 1s step-start infinite;
-}
-@keyframes opencode-blink {
-  50% {
-    opacity: 0;
-  }
 }
 .error {
   margin-top: 8px;
