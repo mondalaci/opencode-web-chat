@@ -162,9 +162,8 @@ export function useServer() {
   }
 
   /**
-   * Fallback selection when neither the session nor the saved preferences name a
-   * model: saved preference → config model → server default model → the running
-   * agent's own model.
+   * Fallback selection when no model has been chosen yet: saved preference →
+   * config model → server default model → the running agent's own model.
    */
   function applyDefaults() {
     const saved = prefs.value[origin.value ?? ""] ?? {}
@@ -311,12 +310,6 @@ export function useServer() {
     selectedImageModel.value = null
   }
 
-  /** Adopt a session's own model as the current selection. */
-  function applySession(session: { model?: ModelRef }) {
-    const model = resolved(session.model)
-    if (model) selectedModel.value = model
-  }
-
   /** Persist the model selection without touching the server. */
   function setModelLocal(model: Model | ModelRef, variant?: string) {
     const next = resolved({ ...toModelRef(model), variant: variant ?? (model as ModelRef).variant })
@@ -361,7 +354,6 @@ export function useServer() {
     setDirectory,
     savedDirectory,
     applySavedPrefs,
-    applySession,
     applyDefaults,
     reset,
     setModelLocal,

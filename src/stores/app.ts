@@ -83,11 +83,11 @@ export function useApp() {
     sessions.currentID.value = sessionID
     writeSessionParam(sessionID, readSessionParam() === sessionID)
     // Refresh the session info so the header reflects fields the list omits.
+    // The session's own model is deliberately not adopted as the global
+    // selection: the model the reader last chose in the picker stays the default,
+    // and the next prompt applies it to the session.
     const info = await client.getSession(sessionID).catch(() => null)
-    if (info) {
-      sessions.upsert(info)
-      server.applySession(info)
-    }
+    if (info) sessions.upsert(info)
     await chat.open(client, sessionID, server.directory.value)
   }
 
