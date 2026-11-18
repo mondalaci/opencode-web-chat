@@ -138,7 +138,12 @@ const stopped = computed(() => state.value.status === "error" && isStop(state.va
     <div v-if="images.length" class="images">
       <PartFile v-for="(image, index) in images" :key="index" :file="image" />
     </div>
-    <div v-show="open" class="body">
+    <!-- `v-if`, not `v-show`: a collapsed body is not built at all. The input and
+         the output are JSON-stringified, pretty-printed and syntax-highlighted
+         when they are rendered, and a long conversation is hundreds of tool
+         calls — doing that for every one of them at mount is what made opening
+         one take seconds. -->
+    <div v-if="open" class="body">
       <div class="section">
         <div class="label">Input</div>
         <JsonBlock :text="inputText" />
