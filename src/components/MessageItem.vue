@@ -16,6 +16,7 @@ import { isStop } from "@/utils/stop"
 import { shortcutsVisible } from "@/stores/shortcuts"
 import { useServer } from "@/stores/server"
 import { useApp } from "@/stores/app"
+import { useChat } from "@/stores/chat"
 import Caret from "./Caret.vue"
 import Markdown from "./Markdown.vue"
 import PartFile from "./PartFile.vue"
@@ -34,17 +35,52 @@ const props = defineProps<{
 /** The model list, for naming the model a message ran on. */
 const { models } = useServer()
 const app = useApp()
+const { messages } = useChat()
 
 const kind = computed(() => props.message.type)
 const isUser = computed(() => kind.value === "user")
 const isAssistant = computed(() => kind.value === "assistant")
 
 /**
+ * The reason a turn ended in failure, as the server recorded it on the idle
+ * message. A reply's own error block covers a step that failed mid-answer; this
+ * is the whole turn ending with nothing to show — a provider that refused the
+ * request, for instance.
+ *
+ * A step that failed already printed its reason on the reply it interrupted, and
+ * the idle message repeats the same failure. The row is only shown when the turn
+ * has no reply carrying the error, so the reason is never printed twice.
+ */
+const turnFailure = computed(() => {
+  const message = props.message
+  if (message.type !== "idle" || message.outcome !== "failed") return null
+  const text = message.error?.message || "The turn failed."
+  const list = messages.value
+  const index = list.findIndex((item) => item.id === message.id)
+  for (let i = index - 1; i >= 0; i--) {
+    const item = list[i]
+    if (item.type === "user") break
+    if (item.type === "assistant" && item.error) {
+      // The reply's own error block already says why this turn failed.
+      if ((item.error.message || "The model returned an error.") === text) return null
+      break
+    }
+  }
+  return text
+})
+
+/**
  * Message types that only record state (the agent/model switched away, the
  * session went idle) carry nothing to display, so they are skipped entirely
- * instead of leaving an empty row behind.
+ * instead of leaving an empty row behind. A failed idle is the exception: it is
+ * the server's own record of a turn that ended with no reply, and the only place
+ * the reason survives a reload.
  */
-const renders = computed(() => !["idle", "agent-switched", "model-switched", "location-switched"].includes(kind.value))
+const renders = computed(() => {
+  const message = props.message
+  if (message.type === "idle") return turnFailure.value !== null
+  return !["agent-switched", "model-switched", "location-switched"].includes(message.type)
+})
 
 const assistant = computed(() => (isAssistant.value ? (props.message as SessionMessageAssistant) : null))
 
@@ -295,6 +331,11 @@ const shellExit = computed(() => {
       <span v-if="compaction.failure" class="compaction-error">{{ compaction.failure }}</span>
     </div>
 
+    <div v-else-if="turnFailure" class="turn-failure" role="alert">
+      <span class="turn-failure-label">The turn failed</span>
+      <span class="turn-failure-text">{{ turnFailure }}</span>
+    </div>
+
     <div v-else-if="notice" class="notice" :class="{ folded: notice.foldable }">
       <button
         v-if="notice.foldable"
@@ -529,6 +570,31 @@ const shellExit = computed(() => {
 }
 .compaction-error {
   color: var(--danger);
+}
+/* A turn that ended in failure with no reply to show. It is the server's own
+   record, so it survives a reload — unlike the transient banner, which is only
+   the immediate signal while this row is on its way. */
+.turn-failure {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px auto;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.turn-failure-label {
+  flex: none;
+  font-weight: 600;
+}
+.turn-failure-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .notice {
   flex: 1;

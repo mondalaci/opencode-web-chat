@@ -332,20 +332,64 @@ function updateAssistant(messageID: string, update: (message: SessionMessageAssi
 }
 
 /**
+ * The assistant message a failed turn was writing, if it wrote one.
+ *
+ * A failure belongs to the turn it interrupted. The last assistant message in the
+ * list is often the previous turn's reply — a turn that fails before a model is
+ * even reached leaves no message of its own — and hanging the error on that reply
+ * would blame something that already finished. So the search starts after the
+ * newest prompt: only a message the turn added belongs to it. A turn adopted from
+ * another client may have failed before its prompt reached this view; its
+ * unfinished last message is still the one it was writing.
+ */
+function failedTurnAssistantID(): string | undefined {
+  let prompt = -1
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i].type === "user") {
+      prompt = i
+      break
+    }
+  }
+  for (let i = messages.value.length - 1; i > prompt; i--) {
+    if (messages.value[i].type === "assistant") return messages.value[i].id
+  }
+  const last = messages.value[messages.value.length - 1]
+  if (last?.type === "assistant" && !last.time?.completed) return last.id
+  return undefined
+}
+
+/**
  * Record a failure where it happened.
  *
  * A step or turn error belongs on the message it interrupted: it scrolls with
  * the conversation and is not mistaken for a failure of whatever the reader
- * does next. The banner is only for errors that have no message to attach to.
+ * does next. The banner is only for errors that have no message to attach to —
+ * a turn that failed before producing a reply, such as a provider refusing the
+ * request. The server also records that failure as a failed idle message, so the
+ * banner is dropped once that record reaches the thread.
  */
 function attachError(err: SessionStructuredError | undefined, messageID?: string) {
   if (!err) return
-  const target = messageID ?? [...messages.value].reverse().find((item) => item.type === "assistant")?.id
+  const target = messageID ?? failedTurnAssistantID()
   if (!target) {
     error.value = err.message || "The turn failed."
     return
   }
   updateAssistant(target, (message) => ({ ...message, error: err }))
+}
+
+/**
+ * Drop the banner once the failed turn is in the thread.
+ *
+ * A failed turn ends with an idle message the server records, and the thread
+ * renders it. The banner carried the same failure only while that record was in
+ * flight; keeping both would print the reason twice. A banner from a different
+ * failure — a prompt the server refused outright — is left alone.
+ */
+function clearFailedIdleBanner() {
+  const newest = messages.value[messages.value.length - 1]
+  if (newest?.type !== "idle" || newest.outcome !== "failed") return
+  if (error.value === (newest.error?.message || "The turn failed.")) error.value = null
 }
 
 /**
@@ -522,6 +566,7 @@ export function useChat() {
       } else {
         setMessages(list)
       }
+      clearFailedIdleBanner()
       permissions.value = perms
       forms.value = pendingForms
       // Only the server knows what is running, and a message that never reports a
@@ -576,6 +621,7 @@ export function useChat() {
       messages.value = mergeMessages(messages.value, list)
       live.clear()
       seed(messages.value)
+      clearFailedIdleBanner()
       forms.value = formList
       if (!isRunning(active, session, context.sessionID, list[list.length - 1])) {
         completeTurn(session?.outcome ?? "succeeded")
