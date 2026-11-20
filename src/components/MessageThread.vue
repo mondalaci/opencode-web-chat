@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import MessageItem from "./MessageItem.vue"
 import Caret from "./Caret.vue"
 import Spinner from "./Spinner.vue"
@@ -18,9 +18,17 @@ const promptIDs = computed(() => conversation.value.filter((message) => message.
 // Distance (px) from the bottom that still counts as "at the bottom".
 const BOTTOM_EPSILON = 8
 
-// A scroll event produced by our own scrollToBottom must not be mistaken for a
-// user decision to detach from the bottom.
-let programmatic = false
+/**
+ * Where our own follow last put the thread, so the scroll event it raises is not
+ * mistaken for a decision to detach from the bottom.
+ *
+ * A flag that says "a follow is in flight" would not do: the follow runs on the
+ * frame a growth lands, so a reader who scrolled up in that same frame would have
+ * their move swallowed as the echo of our own write and be pulled back to the
+ * bottom. The position can tell the two apart, and a stale value is harmless —
+ * it is a position the thread would only be at by being at the bottom anyway.
+ */
+let followed: number | null = null
 let touchY = 0
 
 /**
@@ -105,9 +113,12 @@ const waiting = computed(() => isBusy.value && !awaitingUser.value && newest.val
 function onScroll() {
   const el = viewport.value
   if (!el) return
-  if (programmatic) {
-    programmatic = false
-    return
+  if (followed !== null) {
+    const ours = followed
+    followed = null
+    // Our own follow coming back. Anything else is the reader's move, and it is
+    // judged below.
+    if (Math.abs(el.scrollTop - ours) <= BOTTOM_EPSILON) return
   }
   // While the thread is loading, the spinner stands in for the conversation and
   // the area is shorter than it was: the offset is clamped, and the viewport then
@@ -115,9 +126,9 @@ function onScroll() {
   // the reader returning, and re-pinning on it would drag a long conversation to
   // its end as soon as the messages came back.
   if (loading.value) return
-  // Any non-programmatic scroll that leaves the bottom detaches immediately, so
-  // even a small scroll-up during streaming sticks instead of being pulled back.
-  // Re-attach only when the user returns to (near) the bottom themselves.
+  // Any scroll of the reader's own that leaves the bottom detaches immediately,
+  // so even a small scroll-up during streaming sticks instead of being pulled
+  // back. Re-attach only when the reader returns to (near) the bottom.
   pinned.value = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_EPSILON
 }
 
@@ -137,30 +148,66 @@ function onTouchMove(event: TouchEvent) {
   if ((event.touches[0]?.clientY ?? 0) > touchY + 4) detach()
 }
 
-async function scrollToBottom() {
-  if (!pinned.value) return
-  await nextTick()
+/** Put the end of the conversation at the bottom edge, if the reader is there. */
+function pinToBottom() {
   const el = viewport.value
   if (!el || !pinned.value) return
-  programmatic = true
   el.scrollTop = el.scrollHeight
-  // The scroll event fires before animation-frame callbacks; clear here too in
-  // case setting scrollTop produced no event (already at the bottom).
-  requestAnimationFrame(() => {
-    programmatic = false
-  })
+  followed = el.scrollTop
+}
+
+/** The same, once the update that asked for it has reached the DOM. */
+async function scrollToBottom() {
+  await nextTick()
+  pinToBottom()
 }
 
 /**
- * Follow the conversation as it changes.
+ * Follow the conversation as the thread grows.
  *
- * Not a deep watcher: every update in the store replaces the array — a streamed
- * token, a tool's state, a new prompt — so watching the ref is enough, while
- * `deep` walked every message, every block and every tool's whole output on
- * every token, which on a long conversation is megabytes per delta.
+ * Watching the message list is not enough. Content reaches the store in two
+ * ways: the array is replaced — a new message, a reconciled tail — or a message
+ * is changed in place, which is what every streamed delta does, a token and a
+ * tool call's arguments alike. A watcher on the ref sees only the first; the
+ * second is the common one while a turn runs, because rebuilding the array on
+ * every delta is exactly what the store avoids. A tool card whose command was
+ * still streaming therefore grew below the fold and stayed there until the next
+ * reconcile happened to replace the array — which is the "catching up" a reader
+ * sees.
+ *
+ * What the follow needs to know is not what changed but that the thread got
+ * taller, and the height is also the only thing that sees the growth the store
+ * never learns of at all: an attached picture, a rendered diagram, a code block
+ * settling into its final layout a frame after it was inserted. So the content's
+ * own box is what is watched, and every change to it re-pins the reader who is
+ * at the bottom; `pinToBottom` is a no-op for one who has gone up the
+ * conversation.
+ *
+ * This is also what makes watching the list unnecessary: a replacement the
+ * observer would not see is one that left the thread the same height, and a
+ * thread that did not change height did not move its own end.
+ *
+ * The observer runs with the layout that grew the thread, so the follow is
+ * applied in the same frame as the growth rather than a frame late.
  */
-watch(messages, () => {
-  if (pinned.value) void scrollToBottom()
+let follower: ResizeObserver | null = null
+
+watch(
+  content,
+  (element) => {
+    follower?.disconnect()
+    follower = null
+    if (!element) return
+    follower = new ResizeObserver(pinToBottom)
+    follower.observe(element)
+  },
+  // The ref holds an element only once the loading spinner is gone.
+  { flush: "post" },
+)
+
+onBeforeUnmount(() => {
+  follower?.disconnect()
+  follower = null
 })
 
 watch(loading, (value) => {
@@ -182,7 +229,7 @@ watch(pinned, (value) => { contentBelow.value = !value }, { immediate: true })
 
 watch(currentSessionID, () => {
   pinned.value = true
-  programmatic = false
+  followed = null
 }, { flush: "post" })
 
 /**
