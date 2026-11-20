@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue"
 import type { AssistantReasoning } from "@/api/types"
+import { linkify } from "@/utils/linkify"
 import Spinner from "./Spinner.vue"
 
 const props = defineProps<{ part: AssistantReasoning }>()
@@ -16,6 +17,13 @@ const streaming = computed(() => !props.part.time?.completed)
  * its two ends goes.
  */
 const text = computed(() => props.part.text.trim())
+
+/**
+ * The reasoning as HTML, for the URLs in it: the window around it is plain text,
+ * so a link the model leaves here would otherwise be unclickable like any other
+ * prose the markdown renderer does not reach. `linkify` escapes the rest.
+ */
+const html = computed(() => linkify(text.value))
 
 const body = ref<HTMLElement | null>(null)
 
@@ -35,7 +43,7 @@ watch(
     <div v-if="streaming" class="head" aria-hidden="true">
       <Spinner :size="14" />
     </div>
-    <div ref="body" class="body">{{ text }}</div>
+    <div ref="body" class="body" v-html="html"></div>
   </div>
 </template>
 

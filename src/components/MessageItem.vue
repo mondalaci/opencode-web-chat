@@ -12,6 +12,7 @@ import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
 import { endedAtOutputLimit } from "@/utils/truncation"
 import { attachmentView } from "@/utils/file"
 import { composedMessage } from "@/utils/compose"
+import { linkify } from "@/utils/linkify"
 import { isStop } from "@/utils/stop"
 import { shortcutsVisible } from "@/stores/shortcuts"
 import { useServer } from "@/stores/server"
@@ -126,7 +127,15 @@ const content = computed<AssistantContent[]>(() => {
   return drawn
 })
 
-const userText = computed(() => (props.message.type === "user" ? props.message.text : ""))
+/**
+ * What the reader wrote, as HTML.
+ *
+ * A prompt is quoted rather than interpreted: it is drawn verbatim, not rendered
+ * as markdown, so the words stay the reader's own. The one thing done to it is
+ * the one thing a reader expects of a URL in it — a link. `linkify` escapes
+ * everything it is handed, so the text is still theirs and cannot become markup.
+ */
+const userHtml = computed(() => (props.message.type === "user" && props.message.text ? linkify(props.message.text) : ""))
 const userFiles = computed(() =>
   props.message.type === "user" ? (props.message.files ?? []).map(attachmentView) : [],
 )
@@ -323,7 +332,7 @@ const shellExit = computed(() => {
         v-if="isUser"
         class="bubble user-bubble"
       >
-        <p v-if="userText" class="user-text">{{ userText }}</p>
+        <p v-if="userHtml" class="user-text" v-html="userHtml"></p>
         <PartFile v-for="(file, index) in userFiles" :key="index" :file="file" />
       </div>
 
