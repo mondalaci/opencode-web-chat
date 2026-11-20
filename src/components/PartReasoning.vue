@@ -6,6 +6,17 @@ import Spinner from "./Spinner.vue"
 const props = defineProps<{ part: AssistantReasoning }>()
 const streaming = computed(() => !props.part.time?.completed)
 
+/**
+ * The reasoning as it is read.
+ *
+ * A streamed block leads and trails with blank lines — the paragraph breaks the
+ * model writes — and in a pre-wrapped body those are line boxes like any other:
+ * they hold the box open past the last word, with the border hanging over the gap
+ * beside them. The box is meant to end with the reasoning, so the whitespace at
+ * its two ends goes.
+ */
+const text = computed(() => props.part.text.trim())
+
 const body = ref<HTMLElement | null>(null)
 
 watch(
@@ -24,7 +35,7 @@ watch(
     <div v-if="streaming" class="head" aria-hidden="true">
       <Spinner :size="14" />
     </div>
-    <div ref="body" class="body">{{ part.text }}</div>
+    <div ref="body" class="body">{{ text }}</div>
   </div>
 </template>
 
