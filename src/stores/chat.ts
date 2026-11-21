@@ -665,12 +665,6 @@ export function useChat() {
       files?: PromptFileInput[]
       model?: ModelRef
       agent?: string
-      /**
-       * Image model for `generate_image` to use, as picked in the composer. Sent
-       * with every prompt so the tool learns the choice, and an empty value
-       * clears it.
-       */
-      imageModel?: string | null
     },
   ) {
     sending.value = true
@@ -685,9 +679,6 @@ export function useChat() {
       const messageID = await client.prompt(sessionID, {
         text: body.text,
         files: body.files,
-        // Admission metadata, read by the image plugin's prompt hook. Always
-        // present so that going back to "default" clears the remembered choice.
-        metadata: { imageModel: body.imageModel ?? "" },
       })
       // Show the message immediately, under the id the server gave it, so the
       // conversation's own copy replaces it in place rather than appearing beside

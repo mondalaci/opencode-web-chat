@@ -187,15 +187,13 @@ export function useApp() {
       if (!session) return
       sessionID = session.id
     }
-    // The agent, model and image model travel with the message: the first two are
-    // session state in v2 and the picker's choice may not have reached the
-    // session yet, while the last is per-turn metadata the image tool reads.
+    // The agent and model travel with the message: both are session state in v2
+    // and the picker's choice may not have reached the session yet.
     await chat.send(client, sessionID, {
       text: content,
       files,
       model: server.selectedModel.value ?? undefined,
       agent: server.agent,
-      imageModel: server.selectedImageModel.value,
     })
   }
 
