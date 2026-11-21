@@ -10,7 +10,7 @@ import ImageLightbox from "./ImageLightbox.vue"
 import PromptDock from "./PromptDock.vue"
 import { TITLE_SUFFIX } from "@/brand"
 import { useApp } from "@/stores/app"
-import { requestComposerFocus } from "@/stores/draft"
+import { attachments, draft, requestComposerFocus } from "@/stores/draft"
 import { requestOpen, requestPromptStep, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
 import { theme, toggleTheme } from "@/theme"
@@ -212,7 +212,11 @@ function onKeyDown(event: KeyboardEvent) {
       break
     case shortcutKeys.stop:
       event.preventDefault()
+      // Stop has a second meaning: with nothing running and nothing typed, the
+      // same gesture nudges the model onward, so a conversation stalled after a
+      // stop can be resumed without reaching for the keyboard to type "go on".
       if (isBusy.value || awaitingUser.value) void app.abort()
+      else if (!draft.value.trim() && attachments.value.length === 0) void app.continueTurn()
       break
     case shortcutKeys.promptUp:
       // The composer's command menu walks its rows with the arrows, and claims
