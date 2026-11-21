@@ -147,6 +147,8 @@ watch(open, async (value) => {
   background: var(--bg-elevated);
   color: var(--text-muted);
   transition: border-color 0.12s, background 0.12s, color 0.12s;
+  /* Shrink with the bar rather than overflow it: the label yields first. */
+  min-width: 0;
 }
 .opencode-image-anchor:hover {
   background: var(--bg-hover);
@@ -167,8 +169,10 @@ watch(open, async (value) => {
   flex: none;
 }
 .opencode-image-label {
-  /* Long model names ellipsize here and are readable in full from the tooltip. */
-  max-width: 100px;
+  /* The full name shows while the bar has room; past that the label yields
+     toward its floor and ellipsizes, with the tooltip still naming the model. */
+  max-width: 360px;
+  min-width: 60px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -187,6 +191,9 @@ watch(open, async (value) => {
   color: inherit;
   font: inherit;
   cursor: pointer;
+  /* A button's automatic minimum is its whole content, which would stop the
+     label from ever yielding; let the trigger follow the pill instead. */
+  min-width: 0;
 }
 .opencode-image-trigger:focus-visible {
   outline: none;
