@@ -149,11 +149,11 @@ export function usePresence() {
       case "session.execution.failed":
       case "session.execution.interrupted":
         patch(sessionID, { status: "idle" })
-        // A turn that ends in front of the user has been seen; one that ends
-        // elsewhere is something to come back to.
-        if (sessions.currentID.value === sessionID && !unfocused()) {
-          void publishViewed(sessionID)
-        } else if (!unread.value.has(sessionID)) {
+        // A turn that ends in front of the user is not news; one that ends
+        // elsewhere is something to come back to. Reading the finish is what
+        // publishes the view (see `markSeen`), not the turn ending: a tab left
+        // open on a conversation is not proof that its reply was seen.
+        if ((sessions.currentID.value !== sessionID || unfocused()) && !unread.value.has(sessionID)) {
           updateUnread((set) => set.add(sessionID))
         }
         break
@@ -260,12 +260,12 @@ export function usePresence() {
   }
 
   /**
-   * Clear the open conversation, if this tab is showing it to the user.
+   * Clear the open conversation, if this tab is actually showing it to the user.
    *
-   * Looking is what acknowledges a finished turn, so this is not only about
-   * arriving from elsewhere: a turn that ends while this tab is already in front
-   * of the user has to be acknowledged the moment it is marked, or the mark it
-   * never needed would sit there until the user looked away and back.
+   * A visit is what marks a conversation seen: selecting it, or coming back to
+   * the window. A turn finishing is not a visit - the tab can sit open on a
+   * conversation for hours while the user works elsewhere - so the reply stays
+   * green in the panel until somebody really looks at it.
    */
   function acknowledge() {
     if (!looking.value) return
@@ -302,7 +302,10 @@ export function usePresence() {
     window.addEventListener("blur", onAttention)
     document.addEventListener("visibilitychange", onAttention)
     window.addEventListener("storage", onStorage)
-    watch([() => sessions.currentID.value, unread, looking], acknowledge, { immediate: true })
+    // Only a visit acknowledges something. Watching `unread` here would let a
+    // background turn's mark publish the conversation this tab happens to have
+    // open, which is how a dot nobody read could disappear.
+    watch(() => sessions.currentID.value, acknowledge, { immediate: true })
   }
 
   /**
