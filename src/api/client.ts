@@ -3,10 +3,13 @@ import type {
   Agent,
   CommandInfo,
   ConfigEntry,
+  CredentialEntry,
   FormAnswer,
   FormInfo,
   IntegrationAttempt,
   IntegrationAttemptStatus,
+  IntegrationCommandAttempt,
+  IntegrationCommandAttemptStatus,
   IntegrationInfo,
   LocationPublicInfo,
   McpServer,
@@ -387,11 +390,12 @@ export class ServerClient {
     integrationID: string,
     methodID: string,
     directory?: string | null,
+    answer?: Record<string, string | number | boolean | string[]>,
     opts?: CallOptions,
   ): Promise<IntegrationAttempt> {
     const result = await this.request(opts, (requestOptions) =>
       this.sdk.integration.oauth.connect(
-        { integrationID, methodID, ...ServerClient.location(directory) },
+        { integrationID, methodID, ...(answer ? { answer } : {}), ...ServerClient.location(directory) },
         requestOptions,
       ),
     )
@@ -421,6 +425,104 @@ export class ServerClient {
   async oauthCancel(integrationID: string, attemptID: string, opts?: CallOptions): Promise<void> {
     await this.request(opts, (requestOptions) =>
       this.sdk.integration.oauth.cancel({ integrationID, attemptID }, requestOptions),
+    )
+  }
+
+  /** Every integration the server knows, with the ways each can be connected. */
+  async integrations(directory?: string | null, opts?: CallOptions): Promise<IntegrationInfo[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.integration.list(ServerClient.location(directory), requestOptions),
+    )
+    return result.data
+  }
+
+  /** Store an API key as a new connection of an integration. */
+  async integrationConnectKey(
+    integrationID: string,
+    key: string,
+    directory?: string | null,
+    answer?: Record<string, string | number | boolean | string[]>,
+    opts?: CallOptions,
+  ): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.integration.connect.key(
+        { integrationID, key, ...(answer ? { answer } : {}), ...ServerClient.location(directory) },
+        requestOptions,
+      ),
+    )
+  }
+
+  /** Connect through a method the server completes without a browser round trip. */
+  async integrationConnectExternal(
+    integrationID: string,
+    methodID: string,
+    directory?: string | null,
+    answer?: Record<string, string | number | boolean | string[]>,
+    opts?: CallOptions,
+  ): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.integration.connect.external(
+        { integrationID, methodID, ...(answer ? { answer } : {}), ...ServerClient.location(directory) },
+        requestOptions,
+      ),
+    )
+  }
+
+  /** Begin a command-method sign-in, which the server runs as a child process. */
+  async integrationCommandConnect(
+    integrationID: string,
+    methodID: string,
+    directory?: string | null,
+    opts?: CallOptions,
+  ): Promise<IntegrationCommandAttempt> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.integration.command.connect(
+        { integrationID, methodID, ...ServerClient.location(directory) },
+        requestOptions,
+      ),
+    )
+    return result.data
+  }
+
+  async integrationCommandStatus(
+    integrationID: string,
+    attemptID: string,
+    opts?: CallOptions,
+  ): Promise<IntegrationCommandAttemptStatus> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.integration.command.status({ integrationID, attemptID }, requestOptions),
+    )
+    return result.data
+  }
+
+  async integrationCommandCancel(integrationID: string, attemptID: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.integration.command.cancel({ integrationID, attemptID }, requestOptions),
+    )
+  }
+
+  /* ------------------------------- credentials ------------------------------ */
+
+  /** Every stored credential, including which one each integration is using. */
+  async credentials(opts?: CallOptions): Promise<CredentialEntry[]> {
+    return this.request(opts, (requestOptions) => this.sdk.credential.list(requestOptions))
+  }
+
+  async credentialRename(credentialID: string, label: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.credential.update({ credentialID, label }, requestOptions),
+    )
+  }
+
+  async credentialActivate(credentialID: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.credential.activate({ credentialID }, requestOptions),
+    )
+  }
+
+  async credentialRemove(credentialID: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.credential.remove({ credentialID }, requestOptions),
     )
   }
 

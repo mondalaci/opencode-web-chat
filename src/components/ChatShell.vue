@@ -6,12 +6,13 @@ import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
 import Composer from "./Composer.vue"
 import McpDialog from "./McpDialog.vue"
+import IntegrationsDialog from "./IntegrationsDialog.vue"
 import ImageLightbox from "./ImageLightbox.vue"
 import PromptDock from "./PromptDock.vue"
 import { TITLE_SUFFIX } from "@/brand"
 import { useApp } from "@/stores/app"
 import { attachments, draft, requestComposerFocus } from "@/stores/draft"
-import { requestOpen, requestPromptStep, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
+import { openRequests, requestOpen, requestPromptStep, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
 import { theme, toggleTheme } from "@/theme"
 import { formatConversationDate, formatConversationDateTime, formatCost, formatTokens, formatTokensPerSecond } from "@/utils/format"
@@ -24,6 +25,13 @@ const { newChat } = app
 
 /** Briefly confirm that the session id reached the clipboard. */
 const sessionCopied = ref(false)
+
+/** The `/connect` dialog, opened by its slash command. */
+const integrationsDialog = ref<InstanceType<typeof IntegrationsDialog> | null>(null)
+watch(
+  () => openRequests.integrations,
+  () => integrationsDialog.value?.start(),
+)
 
 /**
  * All the way down, and follow what arrives next. The request is the one the
@@ -347,6 +355,7 @@ onBeforeUnmount(() => {
     </main>
 
     <McpDialog />
+    <IntegrationsDialog ref="integrationsDialog" />
 
     <ImageLightbox />
   </div>

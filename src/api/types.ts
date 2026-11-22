@@ -11,6 +11,7 @@ export type {
   AbsolutePath,
   CommandInfo,
   ConfigEntry,
+  CredentialEntry,
   FormAnswer,
   FormBooleanField,
   FormDetail,
@@ -28,6 +29,8 @@ export type {
   IntegrationInfo,
   IntegrationAttempt,
   IntegrationAttemptStatus,
+  IntegrationCommandAttempt,
+  IntegrationCommandAttemptStatus,
   McpServer,
   ModelCapabilities,
   ModelCost,
@@ -72,13 +75,47 @@ export type {
   V2Event,
 } from "@opencode/client"
 
-import type { AgentInfo, ModelInfo, SessionMessageAssistant } from "@opencode/client"
+import type { AgentInfo, IntegrationInfo, ModelInfo, SessionMessageAssistant } from "@opencode/client"
 
 // The generated contract prefixes every entity with its aggregate name; the app
 // uses the short form.
 export type Agent = AgentInfo
 export type Model = ModelInfo
 export type Provider = import("@opencode/client").ProviderInfo
+
+/** The ways an integration can be signed in to, as the server describes them. */
+export type IntegrationMethod = IntegrationInfo["methods"][number]
+/** A stored account or an environment variable an integration reports. */
+export type IntegrationConnection = IntegrationInfo["connections"][number]
+/**
+ * An integration's sign-in form uses the same fields a session form does.
+ *
+ * The generated `FormField` is a discriminated union, which is right for the
+ * session question card that switches on it. The integration form walks the
+ * fields generically, so it wants the union's shared shape in one place.
+ */
+export interface IntegrationFormField {
+  key: string
+  type: "string" | "number" | "integer" | "boolean" | "multiselect" | "external"
+  title?: string
+  description?: string
+  required?: boolean
+  hidden?: boolean
+  when?: Array<{ key: string; op: "eq" | "neq"; value: string | number | boolean }>
+  format?: string
+  minLength?: number
+  maxLength?: number
+  pattern?: string
+  placeholder?: string
+  default?: unknown
+  options?: Array<{ value: string; label: string; description?: string }>
+  custom?: boolean
+  url?: string
+  minItems?: number
+  maxItems?: number
+  minimum?: number | string
+  maximum?: number | string
+}
 
 /** Everything an assistant message can contain, in order. */
 export type AssistantContent = SessionMessageAssistant["content"][number]

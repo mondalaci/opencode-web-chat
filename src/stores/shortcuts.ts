@@ -10,10 +10,26 @@ import { reactive, ref } from "vue"
  */
 export const shortcutsVisible = ref(false)
 
-export const openRequests = reactive({ model: 0, project: 0, sessions: 0, effort: 0, tools: 0 })
+export const openRequests = reactive({ model: 0, project: 0, sessions: 0, effort: 0, tools: 0, integrations: 0 })
 
-export function requestOpen(which: "model" | "project" | "sessions" | "effort" | "tools") {
+export function requestOpen(which: "model" | "project" | "sessions" | "effort" | "tools" | "integrations") {
+  if (which === "model") modelProviderFilter.value = null
   openRequests[which] += 1
+}
+
+/**
+ * The provider a just-opened model picker should show.
+ *
+ * Connecting an integration in `/connect` opens the picker on the provider the
+ * connection unlocked, so the reader lands on the models it just gained instead
+ * of hunting for them in the full list. `null` means every provider.
+ */
+export const modelProviderFilter = ref<string | null>(null)
+
+/** Open the model picker, optionally narrowed to one provider. */
+export function requestModel(providerID?: string) {
+  modelProviderFilter.value = providerID ?? null
+  openRequests.model += 1
 }
 
 /**
