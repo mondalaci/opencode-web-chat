@@ -8,6 +8,7 @@ import {
   type ConversationState,
 } from "@/utils/conversation"
 import { useChat } from "./chat"
+import { useConnection } from "./connection"
 import { useSessions } from "./sessions"
 
 /**
@@ -26,7 +27,10 @@ import { useSessions } from "./sessions"
  *
  * Unread ("done") is the one state this store owns outright: a turn that ends
  * while the tab is not being looked at is something to come back to, and looking
- * at it is what clears it.
+ * at it is what clears it. Looking at a conversation also publishes the idle
+ * stamp to the server (`time.viewed`), because the studio app and the Cinnamon
+ * panel read that marker rather than this browser's private set - without it
+ * their green dot stays lit for a finish the user has already read here.
  *
  * That set belongs to the app rather than to the tab. Every tab watches the same
  * stream, so every hidden one marks the same conversation unread; if each kept
@@ -45,6 +49,15 @@ interface SessionSignals {
 
 const signals = ref<Record<string, SessionSignals>>({})
 const unread = ref<Set<string>>(readUnread())
+
+/**
+ * The idle stamps this tab has already published, keyed `<sessionID>:<idle>`.
+ *
+ * Acknowledging runs on every focus change and every unread change, so the same
+ * finish would otherwise be posted over and over. Keying on the stamp rather
+ * than the session is what lets a later turn's finish be published too.
+ */
+const published = new Set<string>()
 
 function readUnread(): Set<string> {
   try {
@@ -86,6 +99,7 @@ export interface ReportedConversation {
 
 export function usePresence() {
   const chat = useChat()
+  const connection = useConnection()
   const sessions = useSessions()
 
   function unfocused() {
@@ -135,9 +149,13 @@ export function usePresence() {
       case "session.execution.failed":
       case "session.execution.interrupted":
         patch(sessionID, { status: "idle" })
-        // A turn that ends while the tab is elsewhere is something to come back
-        // to; one that ends in front of the user is not.
-        if (unfocused() && !unread.value.has(sessionID)) updateUnread((set) => set.add(sessionID))
+        // A turn that ends in front of the user has been seen; one that ends
+        // elsewhere is something to come back to.
+        if (sessions.currentID.value === sessionID && !unfocused()) {
+          void publishViewed(sessionID)
+        } else if (!unread.value.has(sessionID)) {
+          updateUnread((set) => set.add(sessionID))
+        }
         break
       default:
         break
@@ -162,9 +180,47 @@ export function usePresence() {
     })
   }
 
+  /**
+   * Publish "I have seen this finish" to the server.
+   *
+   * This app's unread set is private to the browser, so it cannot tell the
+   * panel that a green dot has been dealt with. Posting the idle transition to
+   * `time.viewed` is what clears the same conversation's dot in the studio and
+   * in the Cinnamon panel.
+   *
+   * The stamp is read fresh: the event stream carries only a session id, so a
+   * cached record's `time` is whatever load last saw. Posting an older idle
+   * leaves the panel lit for a newer finish, and the server only ever moves
+   * `viewed` forward, so it cannot repair that later.
+   *
+   * Best effort: nothing here waits for it.
+   */
+  async function publishViewed(sessionID: string) {
+    const client = connection.client.value
+    if (!client) return
+    let key: string | null = null
+    try {
+      const session = await client.getSession(sessionID)
+      sessions.upsert(session)
+      const idle = session.time?.idle
+      if (!idle) return
+      key = `${sessionID}:${idle}`
+      if (published.has(key)) return
+      published.add(key)
+      await client.viewSession(sessionID, idle)
+    } catch {
+      // The next acknowledgement may retry; keep the marker honest either way.
+      if (key) published.delete(key)
+    }
+  }
+
   function markSeen(sessionID: string | null | undefined) {
-    if (!sessionID || !unread.value.has(sessionID)) return
-    updateUnread((set) => set.delete(sessionID))
+    if (!sessionID) return
+    if (unread.value.has(sessionID)) updateUnread((set) => set.delete(sessionID))
+    // Opening a conversation is the user saying they have seen it, whether or
+    // not this tab ever flagged it. The panel reads the server's marker, so a
+    // finish another window watched still has to be told.
+    void publishViewed(sessionID)
   }
 
   /**
@@ -256,6 +312,7 @@ export function usePresence() {
    */
   function reset() {
     signals.value = {}
+    published.clear()
   }
 
   return {

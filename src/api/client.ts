@@ -473,6 +473,21 @@ export class ServerClient {
   }
 
   /**
+   * Mark the idle transition a viewer has seen.
+   *
+   * The server records it as `time.viewed`, which is the marker every other
+   * client reads to tell a finish somebody has looked at from one they have
+   * not — the studio app's green dot and the Cinnamon panel's both come from
+   * it. `idle` has to be the conversation's current stamp: the server only
+   * ever moves `viewed` forward, so posting an older one cannot be repaired.
+   */
+  async viewSession(sessionID: string, idle: number, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.session.view({ sessionID, idle }, requestOptions),
+    )
+  }
+
+  /**
    * Patch a session. The endpoint answers without a body, so the row is read
    * back: callers need the server's own title to keep the sidebar honest rather
    * than guessing at it.
