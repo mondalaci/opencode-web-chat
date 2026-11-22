@@ -27,10 +27,12 @@ import { useSessions } from "./sessions"
  *
  * Unread ("done") is the one state this store owns outright: a turn that ends
  * while the tab is not being looked at is something to come back to, and looking
- * at it is what clears it. Looking at a conversation also publishes the idle
- * stamp to the server (`time.viewed`), because the studio app and the Cinnamon
- * panel read that marker rather than this browser's private set - without it
- * their green dot stays lit for a finish the user has already read here.
+ * at it is what clears it. A turn that ends while the user is watching that very
+ * conversation has been seen as it arrives, so it never becomes unread. Either
+ * way the idle stamp is published to the server (`time.viewed`), because the
+ * studio app and the Cinnamon panel read that marker rather than this browser's
+ * private set - without it their green dot stays lit for a finish the user has
+ * already read here, and a tile turns green for a reply the user watched land.
  *
  * That set belongs to the app rather than to the tab. Every tab watches the same
  * stream, so every hidden one marks the same conversation unread; if each kept
@@ -149,11 +151,14 @@ export function usePresence() {
       case "session.execution.failed":
       case "session.execution.interrupted":
         patch(sessionID, { status: "idle" })
-        // A turn that ends in front of the user is not news; one that ends
-        // elsewhere is something to come back to. Reading the finish is what
-        // publishes the view (see `markSeen`), not the turn ending: a tab left
-        // open on a conversation is not proof that its reply was seen.
-        if ((sessions.currentID.value !== sessionID || unfocused()) && !unread.value.has(sessionID)) {
+        // A turn that ends in front of the user is being watched, so it is not
+        // news: mark it seen here so the panel's tile stays calm. One that ends
+        // while the tab is elsewhere is something to come back to. A tab sitting
+        // open on another conversation must not clear this one, so the branch
+        // only covers the conversation actually on screen.
+        if (sessions.currentID.value === sessionID && !unfocused()) {
+          markSeen(sessionID)
+        } else if (!unread.value.has(sessionID)) {
           updateUnread((set) => set.add(sessionID))
         }
         break
@@ -262,10 +267,10 @@ export function usePresence() {
   /**
    * Clear the open conversation, if this tab is actually showing it to the user.
    *
-   * A visit is what marks a conversation seen: selecting it, or coming back to
-   * the window. A turn finishing is not a visit - the tab can sit open on a
-   * conversation for hours while the user works elsewhere - so the reply stays
-   * green in the panel until somebody really looks at it.
+   * A visit is selecting the conversation or coming back to the window. A turn
+   * finishing in it is handled where the event arrives, so this covers the case
+   * that event cannot: a finish that landed while the tab was elsewhere, and the
+   * user has now returned to look at it.
    */
   function acknowledge() {
     if (!looking.value) return
