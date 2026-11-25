@@ -290,8 +290,8 @@ function variantCount(model: Model): number {
                 </ComboboxLabel>
                 <ComboboxItem
                   v-for="model in group.models"
-                  :key="modelKey(group.providerID, model.id)"
-                  :value="modelKey(group.providerID, model.id)"
+                  :key="modelKey(model.providerID, model.id)"
+                  :value="modelKey(model.providerID, model.id)"
                   :text-value="model.name"
                   class="opencode-model-option"
                   :class="{ 'is-active': isSelected(model) }"
