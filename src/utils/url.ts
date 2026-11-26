@@ -11,6 +11,14 @@ export function readSessionParam(): string | null {
   return readParam("session")
 }
 
+/**
+ * Message id encoded in the URL, from `?message=` — the other half of a
+ * permalink, naming the message in the chat to land on.
+ */
+export function readMessageParam(): string | null {
+  return readParam("message")
+}
+
 /** Initial composer text, prefilled from `?query=`. */
 export function readQueryParam(): string | null {
   return readParam("query")
@@ -57,6 +65,9 @@ function dropParams(names: string[]) {
 export function writeSessionParam(id: string | null, replace = true) {
   try {
     const url = new URL(window.location.href)
+    // A message belongs to one chat: opening another one does not carry the
+    // message the URL happened to name.
+    if (url.searchParams.get("session") !== id) url.searchParams.delete("message")
     if (id) url.searchParams.set("session", id)
     else url.searchParams.delete("session")
     const state = { session: id }
@@ -64,5 +75,40 @@ export function writeSessionParam(id: string | null, replace = true) {
     else history.pushState(state, "", url.toString())
   } catch {
     /* history unavailable */
+  }
+}
+
+/**
+ * Point the URL at one message of the open chat, which is what a timestamp's
+ * own link does. Pushed rather than replaced, so Back returns to the place the
+ * reader was reading before they followed it.
+ */
+export function writeMessageParam(id: string | null) {
+  try {
+    const url = new URL(window.location.href)
+    // Asking for the message the URL already names is not a step to go back to.
+    if (url.searchParams.get("message") === id) return
+    if (id) url.searchParams.set("message", id)
+    else url.searchParams.delete("message")
+    const previous = history.state && typeof history.state === "object" ? history.state : {}
+    history.pushState({ ...previous, message: id }, "", url.toString())
+  } catch {
+    /* history unavailable */
+  }
+}
+
+/**
+ * The absolute URL that opens a chat at one message: what a timestamp copies,
+ * and what the address bar carries once it is clicked.
+ */
+export function messagePermalink(sessionID: string, messageID: string): string {
+  try {
+    const url = new URL(window.location.href)
+    url.searchParams.set("session", sessionID)
+    url.searchParams.set("message", messageID)
+    url.hash = ""
+    return url.toString()
+  } catch {
+    return ""
   }
 }

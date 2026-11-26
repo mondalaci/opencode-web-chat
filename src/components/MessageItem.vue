@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, onBeforeUnmount, ref } from "vue"
 import { ChevronRight, Info, Sparkles, Terminal, User } from "lucide-vue-next"
 import type {
   AssistantContent,
@@ -12,8 +12,11 @@ import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
 import { endedAtOutputLimit } from "@/utils/truncation"
 import { attachmentView } from "@/utils/file"
 import { composedMessage } from "@/utils/compose"
+import { copyText } from "@/utils/clipboard"
 import { linkify } from "@/utils/linkify"
 import { isStop } from "@/utils/stop"
+import { messagePermalink } from "@/utils/url"
+import { anchorFlash } from "@/stores/anchor"
 import { shortcutsVisible } from "@/stores/shortcuts"
 import { useServer } from "@/stores/server"
 import { useApp } from "@/stores/app"
@@ -36,7 +39,7 @@ const props = defineProps<{
 /** The model list, for naming the model a message ran on. */
 const { models } = useServer()
 const app = useApp()
-const { messages } = useChat()
+const { messages, currentSessionID } = useChat()
 
 const kind = computed(() => props.message.type)
 const isUser = computed(() => kind.value === "user")
@@ -282,6 +285,56 @@ const meta = computed(() => {
  */
 const metaRest = computed(() => Boolean(meta.value?.model || meta.value?.tokens || meta.value?.cost))
 
+/**
+ * The message's own link: the chat it lives in and the message in it.
+ *
+ * A timestamp is the one thing every message has, so it is what a link hangs
+ * from. The id is the server's own and never changes, which is what makes the
+ * URL open the same message after a reload, a restart, or on someone else's
+ * machine. A prompt the server has not yet given an id to is the exception: its
+ * `local-` id is this tab's own and would not resolve anywhere.
+ */
+const permalink = computed(() => {
+  const sessionID = currentSessionID.value
+  if (!sessionID || props.message.id.startsWith("local-")) return ""
+  return messagePermalink(sessionID, props.message.id)
+})
+
+/** The timestamp in the machine-readable form a `<time>` element carries. */
+const stampISO = computed(() => {
+  const created = meta.value?.created
+  return created ? new Date(created).toISOString() : undefined
+})
+
+/** Confirmed for a moment in the stamp itself, so the copy is not silent. */
+const linked = ref(false)
+let linkedTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Follow this message's own link.
+ *
+ * The click is taken over so the copy and the landing happen in the open
+ * conversation rather than as a page load, but the anchor keeps its `href`: a
+ * modified click, a middle click and the browser's own "copy link address" all
+ * still see a real URL.
+ */
+async function openPermalink(event: MouseEvent) {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  app.linkToMessage(props.message.id)
+  if (!(await copyText(permalink.value))) return
+  linked.value = true
+  if (linkedTimer) clearTimeout(linkedTimer)
+  linkedTimer = setTimeout(() => (linked.value = false), 1600)
+}
+
+/** Whether this is the message a link just landed on, which flashes. */
+const flashing = computed(() => anchorFlash.value === props.message.id)
+
+onBeforeUnmount(() => {
+  if (linkedTimer) clearTimeout(linkedTimer)
+})
+
 function isCompose(part: AssistantContent): boolean {
   return part.type === "tool" && composedMessage(part as AssistantTool) !== null
 }
@@ -294,7 +347,7 @@ const shellExit = computed(() => {
 </script>
 
 <template>
-  <div v-if="renders" class="message" :class="isUser ? 'user' : isAssistant ? 'assistant' : 'note-row'" :data-message-id="message.id">
+  <div v-if="renders" class="message" :class="[isUser ? 'user' : isAssistant ? 'assistant' : 'note-row', { 'anchor-flash': flashing }]" :data-message-id="message.id">
     <div v-if="isAssistant || notice" class="avatar" aria-hidden="true">
       <!-- A robot, drawn here rather than imported: a rounded head with a stub
            antenna and side ears, and two eyes knocked out of the fill so they
@@ -319,7 +372,17 @@ const shellExit = computed(() => {
            they are asked for. -->
       <div v-if="meta" class="meta" :title="meta.reference || undefined">
         <div class="meta-inner">
-          <div v-if="meta.created" class="meta-row meta-datetime">{{ formatDateTime(meta.created) }}</div>
+          <div v-if="meta.created" class="meta-row meta-datetime">
+            <a
+              v-if="permalink"
+              class="stamp"
+              :class="{ confirmed: linked }"
+              :href="permalink"
+              :title="linked ? 'Link copied' : 'Copy a link to this message'"
+              @click="openPermalink"
+            ><time :datetime="stampISO">{{ linked ? "Link copied" : formatDateTime(meta.created) }}</time></a>
+            <time v-else :datetime="stampISO">{{ formatDateTime(meta.created) }}</time>
+          </div>
           <div v-if="metaRest && !streaming && shortcutsVisible" class="meta-rest">
             <div v-if="meta.model" class="meta-model">{{ meta.model }}</div>
             <div v-if="meta.tokens" class="meta-row">{{ formatTokens(meta.tokens) }} tokens</div>
@@ -512,6 +575,22 @@ const shellExit = computed(() => {
   background: var(--bubble-user);
   border-radius: var(--radius-lg);
   padding: 9px 14px;
+}
+/* A link that lands on a message marks it for a moment, so the reader sees which
+   one the URL named instead of hunting for it in a screenful of conversation.
+   The ring is drawn around the bubble rather than the row: the row carries no
+   box of its own, and its metadata hangs outside it. */
+.message.anchor-flash .bubble {
+  animation: anchor-flash 1.6s ease-out;
+}
+@keyframes anchor-flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+  }
 }
 .user-text {
   margin: 0;
@@ -796,6 +875,31 @@ const shellExit = computed(() => {
 }
 .meta-datetime {
   font-variant-numeric: tabular-nums;
+}
+/* The stamp is the message's own link. It sits where the date always sat, and is
+   the one thing in the metadata block that takes a pointer — the block itself
+   does not, so the gutter never steals a click from the conversation. */
+.stamp {
+  color: inherit;
+  text-decoration: none;
+  padding: 0 2px;
+  margin: 0 -2px;
+  border-radius: 3px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.stamp:hover,
+.stamp:focus-visible {
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.stamp:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.stamp.confirmed {
+  color: var(--accent);
 }
 /* A thread too narrow to hang the metadata in: the gutter is gone, and there is
    nowhere beside the text for something that is always on screen. The date takes

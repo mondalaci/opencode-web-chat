@@ -18,6 +18,10 @@ targets (see the dependency version in `package.json`).
 - **Chat UI** — streaming assistant messages, Markdown with syntax highlighting
   (including Mermaid diagrams), reasoning blocks, collapsible tool calls with
   JSON-highlighted inputs/outputs, and inline file/image attachments.
+- **Linkable messages** — a message's timestamp is a permalink to that message.
+  Clicking it copies the URL and lands on the message; opening the URL loads the
+  chat, scrolls to the message and flashes it. It works for prompts and replies
+  alike, across reloads and across machines.
 - **Google Photos** — an *Attach photos from Google Photos* button beside the
   paperclip opens Google's own picker in a new tab (the Photos Picker API), and
   what you pick there lands in the composer as ordinary attachments. It needs the
@@ -284,6 +288,9 @@ it — another tab is already telling studio the same thing.
 The URL can preselect a chat and prefill the composer:
 
 - `?session=<id>` — open an existing chat.
+- `?message=<id>` — land on one message of that chat (the chat's own id is
+  required too). A message's timestamp is its permalink: clicking it copies the
+  URL, puts it in the address bar, and flashes the message the link names.
 - `?project=<path>` — open that project for one visit, without moving the
   project the app remembers.
 - `?query=<text>` — prefill the composer with text.
@@ -293,6 +300,7 @@ The URL can preselect a chat and prefill the composer:
 
 ```text
 http://localhost:4173/?project=/home/me/repo&query=Review%20this%20repo&submit=1
+http://localhost:4173/?session=ses_abc&message=msg_xyz
 ```
 
 ## How detection works

@@ -5,6 +5,7 @@ import Caret from "./Caret.vue"
 import Spinner from "./Spinner.vue"
 import ThreadPrompts from "./ThreadPrompts.vue"
 import { useChat } from "@/stores/chat"
+import { anchorFlash, anchorRequest, anchorTarget } from "@/stores/anchor"
 
 const { messages, conversation, loading, currentSessionID, scrollToBottomRequest, contentBelow, pendingForms, pendingPermissions, isBusy, awaitingUser, turnAnchor } = useChat()
 
@@ -160,7 +161,9 @@ function onTouchMove(event: TouchEvent) {
 /** Put the end of the conversation at the bottom edge, if the reader is there. */
 function pinToBottom() {
   const el = viewport.value
-  if (!el || !pinned.value) return
+  // A link that is still on its way to a message outranks the follow: the reader
+  // asked to be somewhere other than the end.
+  if (!el || !pinned.value || anchorPending()) return
   el.scrollTop = el.scrollHeight
   followed = el.scrollTop
 }
@@ -170,6 +173,110 @@ async function scrollToBottom() {
   await nextTick()
   pinToBottom()
 }
+
+/* ------------------------------- message links ------------------------------- */
+
+/** How long a message stays marked after a link lands on it. */
+const FLASH_MS = 1600
+
+/** The request the thread has already honoured, so none is honoured twice. */
+let anchorDone = -1
+let flashTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Whether a link is waiting to be honoured. */
+function anchorPending(): boolean {
+  return anchorTarget.value !== null && anchorRequest.value !== anchorDone
+}
+
+/** The drawn row of a message, if the thread is showing it. */
+function messageRow(id: string): HTMLElement | null {
+  return content.value?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`) ?? null
+}
+
+/**
+ * Put a row in the middle of the thread.
+ *
+ * The placement is measured against the heights the browser has for the rows
+ * around it, and a long conversation only knows the height of what it has laid
+ * out: a row it has not been near is taken at `contain-intrinsic-size`'s
+ * estimate. So the landing is corrected over a few frames, by which time the
+ * rows the jump brought into view have been laid out and the message sits where
+ * it was asked to. A row taller than the thread is aligned to its top instead,
+ * so the link lands on the beginning of what it points at rather than on the
+ * middle of it.
+ */
+function landOn(row: HTMLElement) {
+  let frames = 0
+  const step = () => {
+    const host = viewport.value
+    if (!host) return
+    const box = host.getBoundingClientRect()
+    const rect = row.getBoundingClientRect()
+    const offset = Math.max(12, (host.clientHeight - rect.height) / 2)
+    const delta = rect.top - box.top - offset
+    if (Math.abs(delta) > 1) host.scrollTop += delta
+    if (++frames < 4) requestAnimationFrame(step)
+  }
+  step()
+}
+
+/**
+ * Whether a row is already wholly inside the thread. A link to something the
+ * reader is looking at is a copy, not a jump: moving the conversation under
+ * their eyes to show them a message they can already see helps nobody.
+ */
+function inView(row: HTMLElement): boolean {
+  const host = viewport.value
+  if (!host) return false
+  const box = host.getBoundingClientRect()
+  const rect = row.getBoundingClientRect()
+  return rect.top >= box.top && rect.bottom <= box.bottom
+}
+
+/**
+ * Land on the message a link names.
+ *
+ * Runs when a link is followed and again as the conversation arrives, because a
+ * permalink is read before the chat it names has loaded. A message the
+ * conversation does not have — deleted since the link was made, or named by a
+ * URL that was typed by hand — leaves the thread where an ordinary open puts it.
+ */
+async function applyAnchor() {
+  if (!anchorPending() || loading.value) return
+  await nextTick()
+  const id = anchorTarget.value
+  if (!id) return
+  anchorDone = anchorRequest.value
+  const row = messageRow(id)
+  if (!row) {
+    pinToBottom()
+    return
+  }
+  // Moving the view means the thread stops following the end of the conversation
+  // until the reader goes back to it themselves; a message already on screen is
+  // left where it is, and the follow is left alone.
+  if (!inView(row)) {
+    pinned.value = false
+    landOn(row)
+  }
+  anchorFlash.value = id
+  if (flashTimer) clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => (anchorFlash.value = null), FLASH_MS)
+}
+
+// The conversation arriving is what makes a message findable, so the landing is
+// retried as messages are loaded — not only when a link is followed. It is also
+// applied on mount: a permalink is read while the app is still connecting, which
+// is before this thread exists to hear about it, and the request it left behind
+// is the one the first render has to honour.
+watch([anchorRequest, loading, () => messages.value.length], () => void applyAnchor(), {
+  flush: "post",
+  immediate: true,
+})
+
+onBeforeUnmount(() => {
+  if (flashTimer) clearTimeout(flashTimer)
+})
 
 /**
  * Follow the conversation as the thread grows.

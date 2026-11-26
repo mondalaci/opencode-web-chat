@@ -1,6 +1,7 @@
 import type { Credentials, PromptFileInput } from "@/api/client"
 import type { InstanceInfo } from "@/api/discovery"
 import type { FormAnswer, FormInfo, Model, SessionMessageAssistant } from "@/api/types"
+import { requestAnchor } from "./anchor"
 import { useChat } from "./chat"
 import { useConnection } from "./connection"
 import { draft, requestComposerFocus } from "./draft"
@@ -12,9 +13,11 @@ import {
   clearProjectParam,
   clearPromptParams,
   readAutoSubmitParam,
+  readMessageParam,
   readProjectParam,
   readQueryParam,
   readSessionParam,
+  writeMessageParam,
   writeSessionParam,
 } from "@/utils/url"
 
@@ -106,7 +109,25 @@ export function useApp() {
   /** Apply the session id from the current URL (used on load and back/forward). */
   async function openSessionFromUrl() {
     const id = readSessionParam()
-    if (id) await openSessionByID(id)
+    if (!id) return
+    // Read the message before the chat is opened: a session that lives in
+    // another project is reached by switching to it, and that switch rewrites
+    // the URL — the message the link named would go with it.
+    const messageID = readMessageParam()
+    if (await openSessionByID(id)) requestAnchor(messageID)
+  }
+
+  /**
+   * Make a message the one the address bar points at, and take the reader to it.
+   *
+   * This is what a timestamp does: a message's own link, copied to the clipboard
+   * and left in the URL, so it can be pasted to whoever should see that message
+   * rather than the whole conversation.
+   */
+  function linkToMessage(messageID: string) {
+    if (!sessions.currentID.value) return
+    writeMessageParam(messageID)
+    requestAnchor(messageID)
   }
 
   /**
@@ -344,6 +365,7 @@ export function useApp() {
     switchProject,
     openSessionFromUrl,
     openSessionByID,
+    linkToMessage,
     newChat,
     sendMessage,
     runCommand,
