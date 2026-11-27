@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { X, ArrowDownToLine, CircleAlert, Check, Hash, Moon, Sun } from "lucide-vue-next"
+import { X, ArrowDownToLine, CircleAlert, Check, Hash, Moon, MessageSquareText, Rows3, Sun } from "lucide-vue-next"
 import type { SessionMessageAssistant } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
@@ -14,6 +14,7 @@ import { useApp } from "@/stores/app"
 import { attachments, draft, requestComposerFocus } from "@/stores/draft"
 import { openRequests, requestOpen, requestPromptStep, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
+import { compactReading, toggleReadingMode } from "@/stores/reading"
 import { theme, toggleTheme } from "@/theme"
 import { formatConversationDate, formatConversationDateTime, formatCost, formatTokens, formatTokensPerSecond } from "@/utils/format"
 
@@ -301,6 +302,16 @@ onBeforeUnmount(() => {
           <span class="stat" :title="tokensPerSecondTitle">{{ formatTokensPerSecond(tokensPerSecond) }}</span>
         </div>
         <button
+          class="mode-btn"
+          :class="{ on: compactReading }"
+          :title="compactReading ? 'Show every step' : 'Compact view: text only'"
+          :aria-label="compactReading ? 'Show every step' : 'Compact view: text only'"
+          @click="toggleReadingMode()"
+        >
+          <Rows3 v-if="compactReading" :size="16" />
+          <MessageSquareText v-else :size="16" />
+        </button>
+        <button
           class="theme-btn"
           :title="theme === 'dark' ? 'Light theme' : 'Dark theme'"
           aria-label="Toggle dark mode"
@@ -472,6 +483,7 @@ onBeforeUnmount(() => {
   opacity: 0.5;
 }
 .theme-btn,
+.mode-btn,
 .app-btn {
   flex: none;
   display: inline-flex;
@@ -483,13 +495,20 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--text-muted);
 }
-.theme-btn {
+.theme-btn,
+.mode-btn {
   margin-left: 12px;
 }
 .theme-btn:hover,
+.mode-btn:hover,
 .app-btn:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+/* The compact view is a mode, not an action, so the button stays marked while it
+   is on: the accent is the theme's own "this is in effect" colour. */
+.mode-btn.on {
+  color: var(--accent);
 }
 .app-btn.active {
   color: #4ade80;

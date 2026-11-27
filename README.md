@@ -47,6 +47,11 @@ targets (see the dependency version in `package.json`).
   [`opencode-search`](https://github.com/mondalaci/opencode-search) service; both
   scoped to the open project by default, or to every project when the scope chip
   is switched (the choice is remembered).
+- **Compact view** — a switch in the header between the full transcript and the
+  text alone: a turn's reasoning blocks and tool calls fold behind one line naming
+  what they hold, and the prompts and answers read as one piece. The line opens
+  the turn again, in the order it happened; images and composed messages stay
+  visible, because they are content rather than steps.
 - **Light / dark theme**, responsive sidebar, keyboard shortcuts.
 
 ## Getting started
@@ -138,6 +143,33 @@ To apply config changes (including changed `args`) to a running app:
 pm2 delete opencode-chat && pm2 start ecosystem.config.cjs --only opencode-chat
 pm2 save
 ```
+
+## Reading a conversation
+
+The conversation's header carries the switch between the two ways of reading it.
+The default, **full view**, draws everything the model did: its reasoning blocks
+and every tool call, in the order they happened. **Compact view** — the switch
+between the session figures and the theme toggle — draws only what there is to
+read: the prompts and the replies, with the steps that produced them folded behind
+one line per turn.
+
+The line names what it holds — "6 tool calls, 2 reasoning blocks" — and opens the
+turn again as it happened; clicking it once more folds it away. The switch in the
+header is what returns to the full transcript, so a conversation read compactly
+does not lose anything.
+
+A running turn is the one exception, and only until it writes: while it has
+produced nothing to read yet, its reasoning and calls are drawn as usual. They are
+the only sign of what is happening, and the reader would otherwise watch a caret
+with nothing above it. The moment the first text arrives, the turn's steps fold
+away and the text stands on its own. A turn that never writes — one stopped while
+thinking — keeps its steps for the same reason. A composed message and a picture a
+tool returned (a screenshot read from disk, an image the model generated) are
+content rather than steps, so compact view keeps them; a turn that has produced
+only one of them is folded once it is there to read.
+
+The choice lives in `localStorage` as `opencode-web-chat.reading`: it is
+application-wide rather than per conversation, and survives a reload.
 
 ## Configuration
 

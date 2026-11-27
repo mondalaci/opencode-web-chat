@@ -10,6 +10,7 @@ import type {
 } from "@/api/types"
 import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
 import { endedAtOutputLimit } from "@/utils/truncation"
+import { drawnBlocks, readableBlock } from "@/utils/blocks"
 import { attachmentView } from "@/utils/file"
 import { composedMessage } from "@/utils/compose"
 import { copyText } from "@/utils/clipboard"
@@ -34,6 +35,12 @@ const props = defineProps<{
   caret?: boolean
   /** The newest assistant message, the only one a "Continue" makes sense on. */
   latest?: boolean
+  /**
+   * This message belongs to a turn whose steps the compact view collapsed: only
+   * what is readable is drawn, and a message left with nothing to show does not
+   * draw at all.
+   */
+  compact?: boolean
 }>()
 
 /** The model list, for naming the model a message ran on. */
@@ -80,54 +87,20 @@ const turnFailure = computed(() => {
  * the server's own record of a turn that ended with no reply, and the only place
  * the reason survives a reload.
  */
-const renders = computed(() => {
-  const message = props.message
-  if (message.type === "idle") return turnFailure.value !== null
-  return !["agent-switched", "model-switched", "location-switched"].includes(message.type)
-})
 
 const assistant = computed(() => (isAssistant.value ? (props.message as SessionMessageAssistant) : null))
 
 /**
  * Assistant output blocks, as the thread draws them.
  *
- * A block with no text in it is dropped rather than drawn. An empty text block is
- * a streamed blank first frame; an empty reasoning block is worse, because the
- * only thing it has to show is the border beside a message's thinking — so it
- * lands as a stub above what follows, and one that sits in front of the reasoning
- * of the same step leaves that border looking cut in two. The server writes both
- * (a `reasoning.ended` carrying nothing arrives on its own), so the filter is on
- * what is drawn and the message behind it is left alone.
- *
- * The reasoning that survives is joined into one block, for the same reason: the
- * bar beside a message's thinking is meant to read as one piece, and the pieces
- * the server sends — it does split a step's reasoning around an empty one —
- * would otherwise be drawn with the collapsed margin's gap between them.
+ * The compact view keeps what is readable and drops the steps that produced it;
+ * the summary line above the turn brings them back.
  */
 const content = computed<AssistantContent[]>(() => {
   const message = assistant.value
   if (!message) return []
-  const filled = message.content.filter((block) =>
-    block.type === "text" || block.type === "reasoning" ? block.text.trim() !== "" : true,
-  )
-  const drawn: AssistantContent[] = []
-  for (const block of filled) {
-    const previous = drawn[drawn.length - 1]
-    if (block.type === "reasoning" && previous?.type === "reasoning") {
-      drawn[drawn.length - 1] = {
-        ...previous,
-        // Joined where the words meet: the blank line between them is the seam,
-        // and any the pieces carried on their own would only be height.
-        text: `${previous.text.trimEnd()}\n\n${block.text.trimStart()}`,
-        // The join is as settled as the block it ends on, which is what decides
-        // whether the bar is still being written to.
-        time: block.time ?? previous.time,
-      }
-      continue
-    }
-    drawn.push(block)
-  }
-  return drawn
+  const blocks = drawnBlocks(message)
+  return props.compact ? blocks.filter(readableBlock) : blocks
 })
 
 /**
@@ -225,6 +198,24 @@ const truncated = computed(() => {
   if (!message || !props.latest || props.streaming || errorMessage.value) return false
   if (app.chat.isBusy.value || app.chat.awaitingUser.value) return false
   return endedAtOutputLimit(message.finish)
+})
+
+/**
+ * Whether this message draws anything at all.
+ *
+ * State-only records are skipped, as above. So is a reply whose steps the
+ * compact view collapsed and which has nothing of its own to show: the summary
+ * line above the turn already stands where it was. What else it carries is a
+ * reason to draw it — an error, a retry, a cut-off notice — and so is the caret,
+ * the turn's heartbeat, which has no other home in the thread.
+ */
+const renders = computed(() => {
+  const message = props.message
+  if (message.type === "idle") return turnFailure.value !== null
+  if (["agent-switched", "model-switched", "location-switched"].includes(message.type)) return false
+  if (message.type !== "assistant" || !props.compact) return true
+  if (errorMessage.value || retryNote.value || truncated.value || props.caret) return true
+  return content.value.length > 0
 })
 
 /** Ask the model to carry on; the composer's own send path, on the same model. */
