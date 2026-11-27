@@ -45,7 +45,8 @@ targets (see the dependency version in `package.json`).
 - **Conversation search** — server-side title search with cursor paging, plus
   optional content search through the shared
   [`opencode-search`](https://github.com/mondalaci/opencode-search) service; both
-  scoped to the open project.
+  scoped to the open project by default, or to every project when the scope chip
+  is switched (the choice is remembered).
 - **Light / dark theme**, responsive sidebar, keyboard shortcuts.
 
 ## Getting started
