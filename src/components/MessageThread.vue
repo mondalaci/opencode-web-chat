@@ -64,6 +64,20 @@ function toggleTurn(key: string) {
 const BOTTOM_EPSILON = 8
 
 /**
+ * How close to the end, in screens, the reader has to be for a scroll toward it
+ * to count as a return to the live end rather than as reading back through the
+ * conversation.
+ *
+ * A screenful, because that is what "I scrolled down to the new messages" looks
+ * like: the reader stops when the reply is in view, not on the last pixel. The
+ * old rule re-attached only within `BOTTOM_EPSILON` of the end, so during a
+ * stream — where the end moves away as they scroll — they stopped just short of
+ * it and the thread fell behind with the follow still off, which is the
+ * "scrolling down does not make it follow" that kept coming back.
+ */
+const RETURN_SCREENS = 1
+
+/**
  * Where our own follow last put the thread, so the scroll event it raises is not
  * mistaken for a decision to detach from the bottom.
  *
@@ -74,6 +88,9 @@ const BOTTOM_EPSILON = 8
  * it is a position the thread would only be at by being at the bottom anyway.
  */
 let followed: number | null = null
+
+/** The last offset seen, so a scroll event says which way the reader moved. */
+let lastTop = 0
 let touchY = 0
 
 /**
@@ -172,12 +189,17 @@ function atEnd(el = viewport.value) {
 function onScroll() {
   const el = viewport.value
   if (!el) return
+  const top = el.scrollTop
+  // Which way this event moved the thread. Read before the follow's own echo is
+  // discounted below, so the next event compares against where we actually are.
+  const down = top > lastTop + 0.5
+  lastTop = top
   if (followed !== null) {
     const ours = followed
     followed = null
     // Our own follow coming back. Anything else is the reader's move, and it is
     // judged below.
-    if (Math.abs(el.scrollTop - ours) <= BOTTOM_EPSILON) return
+    if (Math.abs(top - ours) <= BOTTOM_EPSILON) return
   }
   // While the thread is loading, the spinner stands in for the conversation and
   // the area is shorter than it was: the offset is clamped, and the viewport then
@@ -187,8 +209,15 @@ function onScroll() {
   if (loading.value) return
   // Any scroll of the reader's own that leaves the bottom detaches immediately,
   // so even a small scroll-up during streaming sticks instead of being pulled
-  // back. Re-attach only when the reader returns to (near) the bottom.
-  pinned.value = atEnd(el)
+  // back. Going the other way, a reader scrolling down with the end on screen is
+  // coming back to the conversation, not reading history: follow again, and go
+  // to the end they asked for. Waiting for them to land within a few pixels of
+  // it made that depend on hitting a moving target exactly, which is why the
+  // follow used to stay off after they had scrolled back down.
+  const distance = el.scrollHeight - top - el.clientHeight
+  const returning = down && distance <= el.clientHeight * RETURN_SCREENS
+  pinned.value = distance <= BOTTOM_EPSILON || returning
+  if (returning) pinToBottom()
 }
 
 function detach() {
@@ -438,6 +467,7 @@ watch(pinned, (value) => { contentBelow.value = !value }, { immediate: true })
 watch(currentSessionID, () => {
   pinned.value = true
   followed = null
+  lastTop = 0
   opened.value = new Set()
 }, { flush: "post" })
 
