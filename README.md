@@ -17,7 +17,10 @@ targets (see the dependency version in `package.json`).
   connections included.
 - **Chat UI** — streaming assistant messages, Markdown with syntax highlighting
   (including Mermaid diagrams), reasoning blocks, collapsible tool calls with
-  JSON-highlighted inputs/outputs, and inline file/image attachments.
+  JSON-highlighted inputs/outputs, and inline file/image attachments. An image
+  opens fitted to the window; its `1:1` button (or `1`) shows one image pixel
+  per screen pixel (the display's scaling is divided out), with drag-to-pan when
+  it is larger than the window.
 - **Linkable messages** — a message's timestamp is a permalink to that message.
   Clicking it copies the URL and lands on the message; opening the URL loads the
   chat, scrolls to the message and flashes it. It works for prompts and replies
