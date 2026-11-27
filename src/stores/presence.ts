@@ -1,4 +1,5 @@
 import { computed, ref, watch } from "vue"
+import type { ServerClient } from "@/api/client"
 import type { V2Event } from "@/api/types"
 import {
   QUESTION_REASON,
@@ -323,6 +324,27 @@ export function usePresence() {
     published.clear()
   }
 
+  /**
+   * Take the server's word for which conversations are running.
+   *
+   * A tab that has just loaded knows no status for anything, while its unread
+   * set is persisted. Without this, a reload reported every conversation holding
+   * an old finish as "done" — a running turn included — and the studio app's
+   * tray chimed for work that had not finished. The active list is the one
+   * authoritative answer, and a conversation on it is working whatever an old
+   * mark says. It is read again on every (re)connect, since the stream only
+   * reports changes and this tab missed the ones that happened before it.
+   */
+  async function seedRunning(client: ServerClient) {
+    const active = await client.activeSessions()
+    if (!active) return
+    const next = { ...signals.value }
+    for (const sessionID of Object.keys(active)) {
+      next[sessionID] = { ...(next[sessionID] ?? {}), status: "busy" }
+    }
+    signals.value = next
+  }
+
   return {
     signals,
     unread,
@@ -332,6 +354,7 @@ export function usePresence() {
     state,
     stateFor,
     reasonFor,
+    seedRunning,
     markSeen,
     applyEvent,
     start,

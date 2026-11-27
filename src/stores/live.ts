@@ -325,6 +325,11 @@ export function useLive() {
     activeDirectory = directory
     activeKey = keyFor(client)
 
+    // A tab that has just loaded or reconnected knows no status for anything;
+    // ask the server which conversations are running before this tab starts
+    // reporting them to the studio app.
+    void presence.seedRunning(client)
+
     // The stream's own liveness is watched from the moment there is one to
     // watch: a socket that dies without closing sends nothing, and a turn that
     // is really running always emits something.
